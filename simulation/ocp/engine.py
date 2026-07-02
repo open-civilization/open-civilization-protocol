@@ -15,7 +15,7 @@ from .ai import AIEngine
 
 GRID_W = 60
 GRID_H = 80
-INITIAL_POPULATION = 120
+INITIAL_POPULATION = 35  # Reduced to allow survival in harsh environment
 MAX_AGE = 65
 REPRODUCTION_AGE = 13
 REPRODUCTION_ENERGY = 55
@@ -62,11 +62,11 @@ SEASONS = ['spring', 'summer', 'autumn', 'winter']
 
 # Climate zones: top = cold, middle = temperate, bottom = tropical
 CLIMATE_ZONES = {
-    'cold':      {'spring': 1.0, 'summer': 0.7, 'autumn': 0.2, 'winter': 0.005,
+    'cold':      {'spring': 2.0, 'summer': 1.5, 'autumn': 0.5, 'winter': 0.005,
                   'winter_upkeep': 5.0, 'cold_threshold': 50, 'cold_dmg': 30},
-    'temperate': {'spring': 1.5, 'summer': 1.0, 'autumn': 0.5, 'winter': 0.02,
+    'temperate': {'spring': 2.0, 'summer': 1.5, 'autumn': 0.8, 'winter': 0.02,
                   'winter_upkeep': 3.0, 'cold_threshold': 35, 'cold_dmg': 20},
-    'tropical':  {'spring': 1.1, 'summer': 1.0, 'autumn': 0.9, 'winter': 0.05,
+    'tropical':  {'spring': 1.5, 'summer': 1.3, 'autumn': 1.0, 'winter': 0.05,
                   'winter_upkeep': 2.0, 'cold_threshold': 20, 'cold_dmg': 8},
 }
 
@@ -787,7 +787,7 @@ class Simulation:
 
                 # Winter survival rate based on knowledge level
                 # No knowledge (0): 30% survival chance (70% death)
-                # Knowledge (0.5): 50% survival chance
+                # Knowledge (0.5): 55% survival chance
                 # Expert (1.0): 80%+ survival chance
                 base_survival = 0.3 + (storage_skill * 0.5)
 
@@ -797,20 +797,30 @@ class Simulation:
                     winter_damage = 25 + (10 * (1.0 - storage_skill))  # Better knowledge = less damage
                     r.health -= winter_damage
 
-                    # Chance to discover or improve knowledge under extreme pressure
-                    if r.health > 0 and r.age > 20:  # Only if adult and still alive
-                        if 'food_storage' not in r.known_knowledge and random.random() < 0.05:
+                    # CRITICAL: Chance to discover knowledge under extreme pressure (bootstrap mechanism)
+                    # Without this, species dies out when all are ignorant
+                    if r.health > 0:
+                        # Discovery happens more easily in early years (generations 0-10)
+                        early_bonus = max(0, 1.0 - (self.total_deaths / 10000.0))  # Bonus in early years
+
+                        if 'food_storage' not in r.known_knowledge:
                             # Desperate learning through starvation
-                            r.known_knowledge['food_storage'] = {
-                                'level': 0.1,
-                                'source': 'desperate_experience',
-                                'tick_learned': tick
-                            }
-                            r.skills['food_storage'] = 10.0
-                        elif 'food_storage' in r.known_knowledge and random.random() < 0.02:
+                            # Probability: 15% base + 10% bonus in early years = up to 25%
+                            discovery_prob = 0.15 + (0.10 * early_bonus)
+                            if random.random() < discovery_prob:
+                                r.known_knowledge['food_storage'] = {
+                                    'level': 0.15,
+                                    'source': 'desperate_experience',
+                                    'tick_learned': tick
+                                }
+                                r.skills['food_storage'] = 15.0
+                                evts.append({'tick': tick, 'type': 'discovery',
+                                             'text': f'{r.name} learned food storage from starvation experience',
+                                             'x': r.x, 'y': r.y})
+                        elif random.random() < 0.08:
                             # Reinforce knowledge through survival
                             current = r.known_knowledge['food_storage']['level']
-                            r.known_knowledge['food_storage']['level'] = min(1.0, current + 0.05)
+                            r.known_knowledge['food_storage']['level'] = min(1.0, current + 0.08)
                             r.skills['food_storage'] = r.known_knowledge['food_storage']['level'] * 100
 
             # Disease — base chance + crowding + pressure
