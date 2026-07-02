@@ -62,12 +62,12 @@ SEASONS = ['spring', 'summer', 'autumn', 'winter']
 
 # Climate zones: top = cold, middle = temperate, bottom = tropical
 CLIMATE_ZONES = {
-    'cold':      {'spring': 1.0, 'summer': 0.7, 'autumn': 0.2, 'winter': 0.02,
-                  'winter_upkeep': 3.0, 'cold_threshold': 50, 'cold_dmg': 25},
-    'temperate': {'spring': 1.5, 'summer': 1.0, 'autumn': 0.5, 'winter': 0.15,
-                  'winter_upkeep': 1.5, 'cold_threshold': 30, 'cold_dmg': 10},
-    'tropical':  {'spring': 1.1, 'summer': 1.0, 'autumn': 0.9, 'winter': 0.8,
-                  'winter_upkeep': 1.0, 'cold_threshold': 0,  'cold_dmg': 0},
+    'cold':      {'spring': 1.0, 'summer': 0.7, 'autumn': 0.2, 'winter': 0.005,
+                  'winter_upkeep': 5.0, 'cold_threshold': 50, 'cold_dmg': 30},
+    'temperate': {'spring': 1.5, 'summer': 1.0, 'autumn': 0.5, 'winter': 0.02,
+                  'winter_upkeep': 3.0, 'cold_threshold': 35, 'cold_dmg': 20},
+    'tropical':  {'spring': 1.1, 'summer': 1.0, 'autumn': 0.9, 'winter': 0.05,
+                  'winter_upkeep': 2.0, 'cold_threshold': 20, 'cold_dmg': 8},
 }
 
 def climate_zone(y):
@@ -595,16 +595,20 @@ def _do_interact(r, target_id, residents, tick):
             target.memory = target.memory[:MEMORY_CAPACITY]
 
     # Knowledge transmission (oral tradition)
-    # Higher sociability increases knowledge sharing probability
-    if r.known_knowledge and random.random() < (r.traits.sociability * 0.4):
+    # Probability increases with: sociability + age (longer survival = more credibility)
+    age_bonus = min(0.3, r.age / 100.0)  # Older people transmit better
+    transmission_prob = (r.traits.sociability * 0.4) + age_bonus
+
+    if r.known_knowledge and random.random() < transmission_prob:
         # Pick a random knowledge the speaker has
         knowledge_name = random.choice(list(r.known_knowledge.keys()))
         speaker_knowledge = r.known_knowledge[knowledge_name]
 
-        # Listener learns with some distortion and loss
+        # Listener learns with distortion/loss proportional to quality gap
         if knowledge_name not in target.known_knowledge:
             # First time hearing about this knowledge
-            fidelity = random.uniform(0.6, 0.95) * (r.traits.sociability * 0.5 + 0.5)
+            # Better knowledge (higher level) = better fidelity
+            fidelity = random.uniform(0.5, 0.9) * (0.5 + speaker_knowledge['level'] * 0.5)
             learned_level = speaker_knowledge['level'] * fidelity
             target.known_knowledge[knowledge_name] = {
                 'level': learned_level,
@@ -614,11 +618,11 @@ def _do_interact(r, target_id, residents, tick):
             target.skills[knowledge_name] = learned_level * 100
             event_msg = f'{r.name} taught {target.name} about {knowledge_name}'
         else:
-            # Reinforce existing knowledge
+            # Reinforce existing knowledge (only if speaker knows better)
             existing_level = target.known_knowledge[knowledge_name]['level']
-            fidelity = random.uniform(0.7, 0.98)
-            improvement = (speaker_knowledge['level'] - existing_level) * fidelity * 0.3
-            if improvement > 0:
+            if speaker_knowledge['level'] > existing_level:
+                fidelity = random.uniform(0.6, 0.95)
+                improvement = (speaker_knowledge['level'] - existing_level) * fidelity * 0.2
                 target.known_knowledge[knowledge_name]['level'] = min(1.0, existing_level + improvement)
                 target.skills[knowledge_name] = target.known_knowledge[knowledge_name]['level'] * 100
 
@@ -777,25 +781,37 @@ class Simulation:
             if season == 'winter' and cold_thr > 0 and r.energy < cold_thr:
                 r.health -= cold_dmg * (1.0 - r.energy / cold_thr)
 
-            # Winter starvation — if in non-tropical zone during winter and food scarce, high death rate
-            if season == 'winter' and climate_zone(r.y) != 'tropical':
-                here = self.grid[r.y][r.x]
-                if here.biomass < 5 and here.leftover < 5 and r.energy < 30:
-                    # Intense starvation pressure in winter — discovery moment
-                    r.health -= 8  # Base starvation damage
-                    if r.energy < 15:
-                        r.health -= 12  # Extra damage if critically low
-                    # Knowledge discovery: surviving winter hunger creates pressure to "learn" food storage
-                    if 'food_storage' not in r.known_knowledge and random.random() < 0.08:
-                        r.known_knowledge['food_storage'] = {
-                            'level': random.uniform(0.2, 0.5),
-                            'source': 'self-discovered',
-                            'tick_learned': tick
-                        }
-                        r.skills['food_storage'] = r.known_knowledge['food_storage']['level'] * 100
-                        evts.append({'tick': tick, 'type': 'discovery',
-                                     'text': f'{r.name} discovered food storage during winter hardship',
-                                     'x': r.x, 'y': r.y})
+            # Winter survival — directly linked to food storage knowledge
+            if season == 'winter':
+                storage_skill = r.skills.get('food_storage', 0) / 100.0
+
+                # Winter survival rate based on knowledge level
+                # No knowledge (0): 30% survival chance (70% death)
+                # Knowledge (0.5): 50% survival chance
+                # Expert (1.0): 80%+ survival chance
+                base_survival = 0.3 + (storage_skill * 0.5)
+
+                # Knowledge-dependent starvation
+                if random.random() > base_survival:
+                    # Winter kills this resident
+                    winter_damage = 25 + (10 * (1.0 - storage_skill))  # Better knowledge = less damage
+                    r.health -= winter_damage
+
+                    # Chance to discover or improve knowledge under extreme pressure
+                    if r.health > 0 and r.age > 20:  # Only if adult and still alive
+                        if 'food_storage' not in r.known_knowledge and random.random() < 0.05:
+                            # Desperate learning through starvation
+                            r.known_knowledge['food_storage'] = {
+                                'level': 0.1,
+                                'source': 'desperate_experience',
+                                'tick_learned': tick
+                            }
+                            r.skills['food_storage'] = 10.0
+                        elif 'food_storage' in r.known_knowledge and random.random() < 0.02:
+                            # Reinforce knowledge through survival
+                            current = r.known_knowledge['food_storage']['level']
+                            r.known_knowledge['food_storage']['level'] = min(1.0, current + 0.05)
+                            r.skills['food_storage'] = r.known_knowledge['food_storage']['level'] * 100
 
             # Disease — base chance + crowding + pressure
             crowd = cell_pop.get((r.x, r.y), 1) - 1

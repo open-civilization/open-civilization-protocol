@@ -289,15 +289,28 @@ Death may occur from multiple causes, each modeled independently:
 - Residents under age 5 face 2.5% per tick chance of health loss (8–20 damage).
 - This produces meaningful childhood mortality consistent with primitive-era demographics.
 
-#### Winter Exposure
+#### Winter Exposure (Knowledge-Dependent)
 
-Winter damage is climate-zone dependent (see RFC-0003 Climate Zones):
+Winter damage is climate-zone dependent with **direct scaling to food storage knowledge**:
 
-- **Cold zone**: energy threshold 50, up to 25 hp/tick cold damage, 3.0× winter upkeep.
-- **Temperate zone**: energy threshold 30, up to 10 hp/tick cold damage, 1.5× winter upkeep.
-- **Tropical zone**: no winter cold damage, no upkeep increase.
+- **Tropical zone**: 0.05× food regrow in winter
+  - WITH food_storage skill > 30: survive with 20% death rate
+  - WITHOUT food_storage skill: 70%+ death rate
+  
+- **Temperate zone**: 0.02× food regrow in winter  
+  - WITH food_storage skill > 50: survive with 30% death rate
+  - WITHOUT food_storage skill: 95%+ death rate (knowledge is critical)
+  
+- **Cold zone**: 0.005× food regrow in winter
+  - Effectively uninhabitable unless food_storage skill > 70
+  - With skill < 70: 99%+ death rate
 
-This creates strong selection pressure that drives population concentration in the tropical zone. In Phase 1, the cold zone is effectively uninhabitable without emergent adaptations (food storage, shelter, clothing). By year 2-5, cold zone populations drop from 20-30 residents to near-extinction (0-3 residents).
+**Knowledge-Survival Formula:**
+```
+winter_survival_rate = 1.0 - (0.7 - food_storage_knowledge * 0.01)
+```
+
+This creates **natural selection for knowledge**: residents with food storage knowledge have dramatically higher winter survival rates. By year 5-10, population converges to knowledge holders. By year 10-20, knowledge improves as better-informed residents outbreed poorly-informed ones — the second iteration begins.
 
 #### Random Accidents
 

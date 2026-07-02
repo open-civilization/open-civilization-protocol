@@ -58,9 +58,20 @@ The key words "MUST", "MUST NOT", "SHOULD", and "MAY" in this document are to be
 
 ## First Principle
 
-Knowledge is local, mortal, and costly.
+Knowledge is local, mortal, costly, and **adaptive**.
 
 No resident knows the whole world. No discovery is permanent. No transmission is free or perfect.
+
+## Second Principle: Knowledge Drives Survival
+
+Knowledge is NOT decorative. It directly affects survival:
+
+- **No knowledge → death** — During winter, residents without food storage knowledge face 70-95% death rates
+- **Better knowledge → higher survival** — Skill level 50 = 50% survival chance; skill level 80 = 80% survival chance
+- **Survival → reproduction** — Residents who survive winter have more children and transmit knowledge better
+- **Natural selection** — After year 10, non-knowledge holders are extinct; after year 20, poorly-informed are selected against
+
+This creates **generational knowledge ratchet**: each generation refines knowledge by eliminating weak versions through starvation.
 
 ## Knowledge Representation
 

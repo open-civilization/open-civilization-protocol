@@ -306,15 +306,15 @@ The map is divided into three horizontal climate bands (top to bottom):
 
 | Zone      | Rows     | Season Multipliers                          | Winter Upkeep | Cold Threshold | Cold Damage |
 |-----------|----------|---------------------------------------------|---------------|----------------|-------------|
-| Cold      | 0–26     | spring 1.0, summer 0.7, autumn 0.2, winter 0.02 | 3.0×         | 50 energy      | 25 hp/tick  |
-| Temperate | 27–53    | spring 1.5, summer 1.0, autumn 0.5, winter 0.15 | 1.5×         | 30 energy      | 10 hp/tick  |
-| Tropical  | 54–79    | spring 1.1, summer 1.0, autumn 0.9, winter 0.8  | 1.0× (none)  | 0 (none)       | 0 (none)    |
+| Cold      | 0–26     | spring 1.0, summer 0.7, autumn 0.2, winter 0.005 | 5.0×         | 50 energy      | 30 hp/tick  |
+| Temperate | 27–53    | spring 1.5, summer 1.0, autumn 0.5, winter 0.02  | 3.0×         | 35 energy      | 20 hp/tick  |
+| Tropical  | 54–79    | spring 1.1, summer 1.0, autumn 0.9, winter 0.05  | 2.0×         | 20 energy      | 8 hp/tick   |
 
-This creates a latitudinal survival gradient:
+This creates a **survival bottleneck in winter**:
 
-- **Tropical**: no winter penalty, near-constant food supply. The initial safe haven.
-- **Temperate**: moderate winters create seasonal pressure but allow survival with sufficient energy reserves.
-- **Cold**: brutal winters with extremely low food regrow (0.02×) and severe cold damage. Uninhabitable without winter survival technology.
+- **Tropical**: reduced food in winter (0.05×). Without food storage knowledge, 70% population dies.
+- **Temperate**: severe winter (0.02×). Storage knowledge is critical for survival. Non-storage population: 95%+ death rate.
+- **Cold**: uninhabitable (0.005×). Only viable with advanced storage knowledge and technical adaptation.
 
 In Phase 1, the cold zone depopulates within the first few years. The temperate zone supports marginal populations. The tropical zone becomes the population center. Expansion into colder zones requires emergent adaptations (food storage, shelter, clothing) that raise effective winter survival — a key milestone in civilization emergence.
 
