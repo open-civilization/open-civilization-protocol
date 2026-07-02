@@ -116,24 +116,35 @@ FIDELITY_IMITATION = 0.30   # floor: watching + instinctive inheritance, no verb
 FIDELITY_ORAL = 0.60        # spoken language: explicit verbal teaching
 FIDELITY_WRITTEN = 0.95     # writing: symbolic external memory, near-lossless encoding
 
-# Spoken language is a coordination technology, not a random spark between two strangers.
-# It requires a resident to already be embedded in a real, developed social group, to have
-# energy surplus (not survival mode), and for the local population to have pushed simple
-# foraging/subsistence to its practical limit (pressure near or above capacity) — i.e.
-# language emerges once primitive strategies plateau and coordination becomes the next
-# available lever, not before.
-LANGUAGE_GROUP_SIZE = 5              # resident must hold this many real bonds
-LANGUAGE_ENERGY_THRESHOLD = 65       # requires energy surplus, not survival mode
-LANGUAGE_PRESSURE_THRESHOLD = 0.7    # primitive subsistence must be near/at its ceiling
-LANGUAGE_DISCOVERY_CHANCE = 0.015    # per qualifying interaction once conditions are met
+# Spoken language is not a philosophical tool invented in a vacuum — it is a high-pressure
+# survival cooperation protocol: a way to compress and relay fitness-relevant information
+# between bounded-cognition individuals (RFC-0001 Law 7). It requires three conditions
+# together, not any single trigger:
+#   - cooperation payoff: an actual cooperative act with the other individual (food sharing
+#     is the strongest available signal), not mere proximity or small talk
+#   - repeated game: the same pair interacting many times (a stranger met once has no reason
+#     to develop shared signals with you; someone you rely on repeatedly does)
+#   - coordination pressure: real environmental uncertainty/scarcity (population pressure)
+#     making joint action valuable, plus embeddedness in an actual group (enough bonds) —
+#     a solitary individual has no one to coordinate with regardless of pressure
+LANGUAGE_GROUP_SIZE = 2              # must be embedded in a real, sustained group
+LANGUAGE_BOND_THRESHOLD = 0.2        # this specific relationship must carry real cooperative value
+LANGUAGE_REPEAT_THRESHOLD = 3        # repeated game — interacted with this individual several times
+LANGUAGE_PRESSURE_THRESHOLD = 0.6    # environmental uncertainty/scarcity creates coordination payoff
+LANGUAGE_DISCOVERY_CHANCE = 0.02     # per qualifying interaction
+LANGUAGE_COOPERATION_BONUS = 4.0     # multiplier when the interaction was an actual cooperative act
 
-# Writing requires an even further-developed group: language already exists, individual
-# knowledge complexity strains memory, energy surplus persists, and the local population
-# is pressing at or beyond capacity (civilization has run out of room to simply spread out).
+# Writing is not oral tradition's natural extension — it is an external memory organ a
+# civilization grows once oral memory alone can no longer carry its own complexity. It
+# requires: mature spoken language already in place, a stable/organized group (not a
+# transient encounter), a memory deficit (enough distinct knowledge domains that individual
+# recall becomes unreliable), and resource surplus (recording is itself costly time/effort
+# that must be affordable) — matching real writing's historical origins in accounting,
+# storage records, and land/name tracking, not literature.
 WRITING_DISCOVERY_CHANCE = 0.003     # per qualifying tick
 WRITING_COMPLEXITY_THRESHOLD = 3     # distinct knowledge domains needed to motivate a record
 WRITING_ENERGY_THRESHOLD = 55        # writing requires surplus, not survival-mode scarcity
-WRITING_GROUP_SIZE = 8               # writing serves a larger, more organized group
+WRITING_GROUP_SIZE = 3               # writing serves a larger, more organized group than language alone
 WRITING_PRESSURE_THRESHOLD = 0.9     # society has grown to fill its available capacity
 
 
@@ -244,6 +255,7 @@ class Bond:
     rid: int
     quality: float
     last_tick: int
+    interactions: int = 0  # repeated-game counter — how many times this pair has interacted
 
 
 @dataclass
@@ -687,6 +699,31 @@ def _do_scavenge(r, grid):
     return f'{r.name} scavenged {scavenged:.0f} food from leftovers'
 
 
+def _maybe_discover_language(r, target, tick, pressure, cooperative=False):
+    """Spoken language discovery — Experiment pathway. Requires cooperation payoff,
+    repeated game, and coordination pressure together (see constants above); an actual
+    cooperative act (food sharing) is the strongest signal and gets a chance bonus over
+    passive contact."""
+    if 'spoken_language' in r.known_knowledge:
+        return None
+    if len(r.bonds) < LANGUAGE_GROUP_SIZE:
+        return None
+    bond = r.bonds[target.id]
+    if bond.quality < LANGUAGE_BOND_THRESHOLD or bond.interactions < LANGUAGE_REPEAT_THRESHOLD:
+        return None
+    if pressure < LANGUAGE_PRESSURE_THRESHOLD:
+        return None
+    chance = LANGUAGE_DISCOVERY_CHANCE * (LANGUAGE_COOPERATION_BONUS if cooperative else 1.0)
+    if random.random() < chance:
+        origin = 'during_cooperation' if cooperative else 'through_repeated_contact'
+        r.known_knowledge['spoken_language'] = {
+            'level': 0.3, 'source': f'coined_with_{target.name}_{origin}', 'tick_learned': tick
+        }
+        r.skills['spoken_language'] = 30.0
+        return f'{r.name} and {target.name} coined shared words — spoken language emerges'
+    return None
+
+
 def _do_interact(r, target_id, residents, tick, pressure=0.0):
     target = None
     for res in residents:
@@ -707,15 +744,19 @@ def _do_interact(r, target_id, residents, tick, pressure=0.0):
 
     r.bonds[target.id].last_tick = tick
     target.bonds[r.id].last_tick = tick
+    r.bonds[target.id].interactions += 1
+    target.bonds[r.id].interactions += 1
 
-    # Share food if one is hungry
+    # Share food if one is hungry — this is the highest-signal cooperative act available:
+    # a real payoff exchanged between two individuals, not just proximity or small talk.
     if r.energy > 60 and target.energy < 30 and r.traits.sociability > 0.4:
         share = min(15, r.energy - 50)
         r.energy -= share
         target.energy = min(MAX_ENERGY, target.energy + share * 0.9)
         r.bonds[target.id].quality = min(1.0, r.bonds[target.id].quality + 0.2)
         target.bonds[r.id].quality = min(1.0, target.bonds[r.id].quality + 0.3)
-        return f'{r.name} shared food with {target.name}'
+        lang_msg = _maybe_discover_language(r, target, tick, pressure, cooperative=True)
+        return lang_msg or f'{r.name} shared food with {target.name}'
 
     # Exchange spatial memory (with distortion per RFC-0001 Law 6)
     r.bonds[target.id].quality = min(1.0, r.bonds[target.id].quality + 0.05)
@@ -727,21 +768,11 @@ def _do_interact(r, target_id, residents, tick, pressure=0.0):
             target.memory.sort(key=lambda m: m.tick, reverse=True)
             target.memory = target.memory[:MEMORY_CAPACITY]
 
-    # Spoken language discovery — Experiment pathway, gated by group development rather
-    # than a single bonded pair: a resident must already be embedded in a real social
-    # group (enough bonds), have energy surplus (not survival mode), and the local
-    # population must have pushed simple subsistence near its practical ceiling. Language
-    # is what a developed group reaches for once foraging alone stops yielding more.
-    if ('spoken_language' not in r.known_knowledge
-            and len(r.bonds) >= LANGUAGE_GROUP_SIZE
-            and r.energy > LANGUAGE_ENERGY_THRESHOLD
-            and pressure > LANGUAGE_PRESSURE_THRESHOLD):
-        if random.random() < LANGUAGE_DISCOVERY_CHANCE:
-            r.known_knowledge['spoken_language'] = {
-                'level': 0.3, 'source': f'coined_within_the_group_with_{target.name}', 'tick_learned': tick
-            }
-            r.skills['spoken_language'] = 30.0
-            event_msg = f'{r.name} coined shared words with {target.name} — spoken language emerges'
+    # Spoken language discovery — weaker signal here than the cooperative-sharing path
+    # above (general contact, not an exchanged payoff), see _maybe_discover_language.
+    lang_msg = _maybe_discover_language(r, target, tick, pressure, cooperative=False)
+    if lang_msg:
+        event_msg = lang_msg
 
     # Knowledge transmission — fidelity ceiling set by the speaker's best available
     # channel (imitation/oral/written); actual fidelity also scales with how well the

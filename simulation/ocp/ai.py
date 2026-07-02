@@ -189,16 +189,18 @@ def check_trigger(resident, nearby_residents, grid, tick):
     if r.energy > 85 and r.health > 85 and r.age > 15 and random.random() < 0.08:
         return 'surplus', "You feel well-fed and safe. You have a moment to think."
 
-    # Trigger 4: Cultural moment — a developed, well-fed group with no shared words yet,
-    # or a knowledge-rich group with words but no way to keep them. This is narrative
-    # flavor only: the mechanical discovery of spoken_language/writing in engine.py is a
-    # deterministic rule keyed on group size, energy surplus, and population pressure, and
-    # does not depend on this trigger firing or on the AI being enabled at all.
-    if (len(r.bonds) >= 5 and r.energy > 65 and r.age > 15
+    # Trigger 4: Cultural moment — a resident who depends on the same people repeatedly
+    # for real cooperation (hunting, warning, sharing, care), or a knowledge-rich group
+    # with no way to keep what it knows. This is narrative flavor only: the mechanical
+    # discovery of spoken_language/writing in engine.py is a deterministic rule keyed on
+    # cooperation, repeated contact, and population pressure, and does not depend on this
+    # trigger firing or on the AI being enabled at all.
+    if (len(r.bonds) >= 5 and r.energy > 50 and r.age > 15
             and 'spoken_language' not in r.known_knowledge and random.random() < 0.05):
-        return 'cultural_language', ("Your group has grown large and you spend time near the same "
-                                      "people every day. You keep wanting to point at things and say "
-                                      "something, but there are no shared words for it yet.")
+        return 'cultural_language', ("You rely on the same people again and again — to warn of danger, "
+                                      "to share food, to help with the young. A cry or a grunt isn't "
+                                      "enough anymore. You keep wanting a sound that always means the "
+                                      "same thing.")
     if ('spoken_language' in r.known_knowledge and 'writing' not in r.known_knowledge
             and len(r.known_knowledge) >= 3 and r.energy > 55 and random.random() < 0.05):
         return 'cultural_writing', ("Your people now know more than any one person can hold in memory. "

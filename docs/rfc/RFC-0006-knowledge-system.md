@@ -147,6 +147,57 @@ Knowledge MUST arise through one of the following pathways. No other pathway is 
 - Inherited knowledge SHOULD be less detailed or confident than the parent's version.
 - Inheritance represents implicit cultural transmission (habits, preferences, basic survival technique) rather than explicit teaching.
 
+## Language Emergence
+
+Spoken language is not a tool a resident invents to express thought. It is a **high-pressure survival cooperation protocol** — a way to compress and relay fitness-relevant information between bounded-cognition individuals (RFC-0001 Law 7), that only pays for itself once specific structural conditions hold.
+
+### Why Language, Not Before
+
+Pre-linguistic residents already cooperate through raw signals (proximity, alarm-like reactions, imitation). Full spoken language becomes worth its cost only when:
+
+- **Cooperation payoff exists.** Warning of danger, coordinating a hunt, allocating food, caring for the young, and maintaining reciprocal obligation ("you owe me") all pay off in survival terms — none of these require language philosophically, but all of them work better with it.
+- **The interaction repeats.** A stranger encountered once has no reason to develop shared signals with you. Someone you rely on again and again does. Language is a repeated-game phenomenon, not a one-shot invention.
+- **Coordination is genuinely needed.** A solitary forager with abundant resources has nothing to coordinate. Language emerges from groups under real environmental uncertainty or scarcity, where joint action has a measurable payoff.
+
+### Implemented Discovery Conditions
+
+`spoken_language` is discovered through Experiment during an interaction between two residents, requiring all of the following simultaneously:
+
+- the discovering resident is embedded in a real, sustained group (holds enough bonds — not an isolated individual)
+- the specific bond with the other resident reflects real accumulated value (quality) built from a **repeated game** (interaction count) — not a first encounter
+- local population pressure indicates the environment is pushing residents toward genuine coordination need (at or beyond primitive subsistence capacity)
+
+An actual cooperative act (food sharing — a real, costly payoff exchanged between the pair) is a substantially stronger signal than passive proximity, and increases the discovery chance accordingly. This reflects the theory that language is what cooperation under pressure produces, not what leisure produces.
+
+### Why It Grows More Complex
+
+Once basic language exists, RFC-0001 Law 6 (imperfect, net-positive transmission) explains why it deepens over generations rather than staying fixed: larger groups, longer memory spans, deeper kinship, and more numerous exchanged obligations all create pressure for language to encode more categories (time, causality, place, ownership, promise) — but this compounding complexity is a consequence of the Cultural Ratchet (see Transmission Fidelity below), not a separately modeled mechanic.
+
+## Writing Emergence
+
+Writing is not language's natural extension. It is an **external memory organ** a civilization grows once oral memory alone can no longer carry the civilization's own complexity — historically, writing begins with accounting, storage records, and land/name/debt tracking, not literature.
+
+### Why Writing, Not Before
+
+- **Mature spoken language must already exist** — you cannot encode words you don't have.
+- **The group must be stable and organized**, not a transient encounter — writing serves an audience that persists across time, not a single conversation.
+- **A memory deficit must exist** — enough distinct knowledge domains accumulated that no individual can reliably hold and recall all of it, so oral tradition starts visibly losing information.
+- **Resource surplus must exist** — recording is itself a costly act (time, effort, sometimes material); it is only affordable once survival is not consuming all available capacity.
+
+### Implemented Discovery Conditions
+
+`writing` is discovered through Experiment, requiring a resident who simultaneously:
+
+- already knows `spoken_language`
+- belongs to a larger, more organized group than language alone requires (more bonds)
+- holds knowledge across enough distinct domains to represent a genuine memory deficit
+- has energy surplus, not survival-mode scarcity
+- exists within a population pressing at or beyond its subsistence capacity ceiling — i.e. the group has run out of room to solve its problems by simply spreading out, and must instead get better at retaining what it already knows
+
+### Effect
+
+Writing does not change what can be transmitted — it changes how much of it survives transmission (see Transmission Fidelity below). It does not grant new capabilities directly; it raises the ceiling on how much accumulated technique a lineage or group can retain across generations without re-discovering it from scratch.
+
 ## Transmission Fidelity
 
 Per RFC-0001 Law 6 (Transmission Fidelity):
@@ -164,6 +215,26 @@ Transmission fidelity SHOULD depend on:
 - the number of transmission steps from the original source
 - whether the knowledge is reinforced by direct experience after transmission
 - the availability of external memory aids (artifacts, landmarks, rituals)
+
+### Implemented Channel Model
+
+Transmission fidelity is modeled as a communication channel whose base retention rate depends on which technology the transmitting resident has discovered (see Language Emergence and Writing Emergence above):
+
+| Channel   | Base Retention | Requires             |
+|-----------|-----------------|----------------------|
+| Imitation | 0.30            | nothing — the floor  |
+| Oral      | 0.60            | `spoken_language`     |
+| Written   | 0.95            | `writing`              |
+
+When a transmitting resident has access to more than one channel (e.g. both spoken language and writing), the channels combine using the standard redundant-channel recovery formula from reliability engineering — a message survives if *at least one* channel gets it through:
+
+```
+combined_retention = 1 - (1 - channel_a) × (1 - channel_b)
+```
+
+For writing + oral: `1 - (1 - 0.95)(1 - 0.60) = 1 - 0.05 × 0.40 = 0.98`, matching the intuition that a literate, still-speaking society retains knowledge almost completely, not merely as well as writing alone would suggest.
+
+This channel fidelity acts as a *ceiling*, not a fixed value: actual transmission fidelity for a specific piece of knowledge also scales down when the transmitting resident's own grasp of it is still shallow, so a novice with writing does not transmit as well as a master with only oral tradition transmits a well-practiced skill. This same channel model governs both cross-generation Inheritance (a parent's best available channel bounds what a child receives) and peer-to-peer Communication (a speaker's best available channel bounds what a listener learns).
 
 ### Cultural Ratchet
 

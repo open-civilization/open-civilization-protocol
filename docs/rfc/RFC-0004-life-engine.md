@@ -253,14 +253,14 @@ At pressure 1.0, fertility is ~50% of baseline. At pressure 1.5, fertility drops
 
 ### Phase 1 Lifecycle Parameters
 
-Phase 1 targets an average lifespan of approximately 30 ticks (corresponding to primitive-era life expectancy), consistent with historical pre-agricultural societies:
+MAX_AGE is a theoretical ceiling, not a realistic expectation for most residents — actual lifespan is dominated by nutritional history (see Age Decline below), so a well-fed post-agricultural population approaches it while a chronically food-insecure pre-agricultural one does not:
 
 | Parameter          | Value | Rationale                                   |
 |--------------------|-------|---------------------------------------------|
-| MAX_AGE            | 65    | Maximum possible lifespan                   |
+| MAX_AGE            | 100   | Theoretical maximum lifespan                |
 | REPRODUCTION_AGE   | 13    | Earliest age for reproduction               |
 | INFANT_AGE         | 5     | End of high-mortality childhood period       |
-| Age decline onset  | 35    | Physical deterioration begins               |
+| Age decline onset  | 30    | Earliest possible onset of physical decline (only reached this early under chronic malnutrition) |
 
 ### Mortality Factors
 
@@ -298,8 +298,10 @@ Winter creates acute food scarcity (0.005–0.05× regrowth relative to baseline
 - Food storage knowledge reduces this multiplier by up to 30% at full skill (`level 1.0`), representing food preserved from abundant seasons being drawn down during scarcity.
 - Near-zero winter regrowth (0.005–0.05×) means foraging cannot offset upkeep, so energy reserves deplete steadily through the season.
 - When energy reaches 0, ordinary starvation damage applies (see above); residents below the zone's cold threshold also take direct cold exposure damage.
-- Cold zone thresholds and damage are severe enough (`cold_threshold=50`, `cold_dmg=14`, `winter_upkeep=2.8×`) that without food storage knowledge, cold-zone residents are reliably killed off within a single winter — there is no domesticated animal, clothing, or shelter system yet to blunt this. This is a deliberate consequence of the model, not a special-cased death rule.
+- Cold zone thresholds and damage are severe enough (`cold_threshold=50`, `cold_dmg=14`, `winter_upkeep=2.8×`) that without food storage, clothing, and shelter knowledge, cold-zone residents are reliably killed off within a single winter. This is a deliberate consequence of the model, not a special-cased death rule.
 - Tropical and temperate zones are survivable at baseline: winter is costly but not universally lethal, so a knowledge-free population persists there while thinning each winter.
+- `shelter_building` (discovered through repeated direct cold exposure — energy below the zone's cold threshold) reduces cold exposure damage by up to 60% at full skill.
+- `clothing_making` (same discovery trigger, an independent invention) reduces the winter upkeep multiplier by up to 35% at full skill, stacking multiplicatively with food storage's own upkeep reduction.
 
 **Natural Selection Path:**
 - Winters recur every year and impose real, repeated losses — this is not a single filtering event but an ongoing pressure.
@@ -312,11 +314,16 @@ Winter creates acute food scarcity (0.005–0.05× regrowth relative to baseline
 - 0.3% per tick chance of injury (8–22 damage), amplified by pressure_mult.
 - Represents falls, animal attacks, drowning, and other environmental hazards.
 
-#### Age Decline
+#### Age Decline (Nutrition-Linked)
 
-- After age 35, increasing probability of health loss per tick.
-- Probability scales with distance past age 35, reaching high levels near MAX_AGE.
+Age decline onset and severity depend on a resident's nutritional history, not chronological age alone.
+
+**Mechanism:**
+- Each resident accumulates `malnutrition_debt`: it rises while energy stays below a chronic-hunger threshold and slowly heals while energy stays above a well-fed threshold, capped at 100.
+- Past age 30, decline probability per tick combines two terms: `(age − 30) / 60` (a slow ramp reaching its natural ceiling near MAX_AGE for a well-fed resident) plus `malnutrition_debt / 100 × 0.8` (which can add the equivalent of decades of aging at any age past 30 for a chronically hungry resident).
 - Damage: 5 health points per episode.
+
+**Why this matters:** a resident who forages hand-to-mouth in a pre-agricultural tropical zone — well-fed some days, hungry others — accumulates debt steadily and starts declining sharply in their 30s regardless of how many years MAX_AGE nominally allows. A resident in a food-secure, post-agricultural population with reliable surplus (see RFC-0003 Domestication) recovers from occasional shortfalls and can approach the full 100-year ceiling. This ties the abstract MAX_AGE constant to the same knowledge-and-environment dynamics that govern the rest of the simulation, rather than treating lifespan as a fixed demographic parameter.
 
 ### Death Classification
 
