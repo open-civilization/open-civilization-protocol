@@ -97,12 +97,17 @@ class Cell:
     biomass_cap: float
     water: bool
     climate: str = 'temperate'
+    storage: float = 0.0  # Food stored in granary
+    storage_cap: float = 200.0  # Max storage capacity
 
     def passable(self):
         return self.terrain != 'lake'
 
     def season_mult(self, season):
         return CLIMATE_ZONES[self.climate][season]
+
+    def has_storage(self):
+        return self.storage_cap > 0
 
 
 @dataclass
@@ -348,6 +353,22 @@ def decide(r, grid, residents, tick, pressure=0.0):
             target = max(adjacent, key=lambda x: x[0].energy)[0]
             return ('raid', None, None, target.id)
 
+    # STORAGE: winter retrieval or autumn storage
+    season = SEASONS[(tick // SEASON_LENGTH) % 4]
+
+    # Winter: retrieve from storage if needed
+    if season == 'winter' and r.energy < 50 and here.storage > 5:
+        return ('retrieve', None, None, None)
+
+    # Autumn: store surplus food for winter
+    if season == 'autumn' and r.energy > 60 and here.storage_cap > 0 and here.storage < here.storage_cap * 0.8:
+        return ('store', None, None, None)
+
+    # Build storage if in temperate/cold zone and there's others here
+    if climate_zone(r.y) != 'tropical' and here.storage_cap <= 0 and len(near_res) > 0 and r.energy > 40:
+        if random.random() < 0.1:  # 10% chance when conditions are met
+            return ('build', None, None, None)
+
     # CRITICAL / HUNGRY: find food
     if r.energy < 40:
         if here.biomass > 3:
@@ -567,6 +588,44 @@ def _do_raid(r, target_id, residents, tick):
         return f'{r.name} tried to raid {target.name} — defeated (-{28:.0f}hp)'
 
 
+def _do_build_storage(r, grid):
+    """Build a granary at current location (costs energy, one-time)"""
+    cell = grid[r.y][r.x]
+    if cell.storage_cap > 0:
+        return f'{r.name} built a granary here'  # Already built
+    cell.storage_cap = 200.0
+    r.energy -= 20
+    return f'{r.name} constructed a granary'
+
+
+def _do_store(r, grid, amount=None):
+    """Store food in local granary"""
+    cell = grid[r.y][r.x]
+    if cell.storage_cap <= 0:
+        return None  # No storage here
+    if amount is None:
+        amount = min(r.energy * 0.5, cell.storage_cap - cell.storage)  # Store up to 50% of energy
+    if amount <= 0:
+        return None
+    r.energy -= amount * 1.2  # Storing costs 20% extra energy
+    cell.storage += amount
+    return f'{r.name} stored {amount:.0f} food (now: {cell.storage:.0f})'
+
+
+def _do_retrieve(r, grid, amount=None):
+    """Retrieve food from local granary"""
+    cell = grid[r.y][r.x]
+    if cell.storage <= 0:
+        return None  # No storage available
+    if amount is None:
+        amount = min((MAX_ENERGY - r.energy) * 0.8, cell.storage)  # Take up to 80% of what we need
+    if amount <= 0:
+        return None
+    r.energy += amount
+    cell.storage -= amount
+    return f'{r.name} retrieved {amount:.0f} food (now: {cell.storage:.0f})'
+
+
 # ── Main Simulation ──
 
 class Simulation:
@@ -738,6 +797,12 @@ class Simulation:
                 msg = _do_interact(r, tid, self.residents, tick)
             elif action == 'raid':
                 msg = _do_raid(r, tid, self.residents, tick)
+            elif action == 'build':
+                msg = _do_build_storage(r, self.grid)
+            elif action == 'store':
+                msg = _do_store(r, self.grid)
+            elif action == 'retrieve':
+                msg = _do_retrieve(r, self.grid)
             elif action == 'reproduce':
                 msg, self._next_id = _do_reproduce(r, tid, self.residents, self.grid, tick, self._next_id)
 
@@ -814,10 +879,12 @@ class Simulation:
             living = [r for r in self.residents if r.alive]
             terrain = []
             biomass = []
+            storage = []
             for row in self.grid:
                 for c in row:
                     terrain.append(c.terrain)
                     biomass.append(round(c.biomass, 1))
+                    storage.append(round(c.storage, 1))
 
             res_data = [{
                 'id': r.id, 'name': r.name, 'x': r.x, 'y': r.y,
@@ -837,7 +904,7 @@ class Simulation:
             zone_boundary = GRID_H // 3
             return {
                 'gw': GRID_W, 'gh': GRID_H,
-                'terrain': terrain, 'biomass': biomass,
+                'terrain': terrain, 'biomass': biomass, 'storage': storage,
                 'residents': res_data,
                 'metrics': m,
                 'history': self.metrics_history[-300:],
