@@ -227,6 +227,12 @@ Phase 1 SHOULD distinguish at least three broad categories:
 - Resources MUST be obtainable only through physically valid interactions.
 - Resources MUST be consumable, transferable, transformable, recoverable, or exhaustible as appropriate.
 - Resource abundance MUST NOT be globally implicit if local scarcity matters.
+- The world MUST contain simultaneous zones of relative abundance and relative scarcity. Uniform resource distribution across all reachable space is not permitted.
+- Resource abundance SHOULD vary over time, such as seasonally or cyclically, so that storage, migration, and trade remain ongoing strategic concerns rather than one-time optimizations.
+
+### Scarcity Gradient Rationale
+
+A world that is uniformly abundant removes any incentive for coordination, storage, or exchange. A world that is uniformly scarce collapses populations before organization can form. The gradient between abundant and scarce zones, and its variation over time, is what gives migration, trade, and surplus-driven behavior a reason to exist.
 
 ## Water Model
 

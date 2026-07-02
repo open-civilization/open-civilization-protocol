@@ -288,6 +288,12 @@ Knowledge MUST arise from acquisition pathways, not arbitrary injection.
 - Story systems MUST NOT invent discoveries that the simulation did not earn.
 - LLM assistance, if used, MUST operate inside a knowledge boundary defined by world data and agent perspective.
 
+### Transmission Fidelity
+
+- At least one low-cost transmission pathway (such as oral tradition or imitation) MUST be available before formal record-keeping exists.
+- Transmission MAY be imperfect. Distortion, forgetting, and reinterpretation during transmission MUST be treated as a legitimate source of novelty, not merely as an error to be eliminated.
+- Transmission fidelity SHOULD be net-positive across generations on average; if every generation loses more than it retains, accumulated knowledge cannot outlast individual lifespans and civilization-level memory becomes impossible.
+
 ## Law 7: Bounded Cognition
 
 ### Statement
@@ -324,6 +330,11 @@ No resident may perform unbounded planning, inference, or search every tick.
 - The engine MUST define or enforce computational ceilings at the resident level.
 - Decision quality MAY vary with budget, context, or urgency.
 - Privileged "perfect play" resident reasoning is forbidden as a baseline mechanism.
+- Computational ceilings MUST NOT be a single uniform constant applied identically to every resident. Budgets SHOULD vary by individual attributes such as age, health, experience, tools, or role.
+
+### Heterogeneity Rationale
+
+Uniform budgets flatten out the differences that comparative advantage depends on. If every resident faces the same effective ceiling, there is no basis for specialization, delegation, or exchange to emerge. Variation in bounded computation is one of the conditions that makes division of labor possible rather than merely permitted.
 
 ### Notes
 
