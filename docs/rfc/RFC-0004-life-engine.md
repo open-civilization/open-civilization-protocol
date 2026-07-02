@@ -293,11 +293,11 @@ Death may occur from multiple causes, each modeled independently:
 
 Winter damage is climate-zone dependent (see RFC-0003 Climate Zones):
 
-- **Cold zone**: energy threshold 45, up to 15 hp/tick cold damage, 2.5× winter upkeep.
-- **Temperate zone**: energy threshold 30, up to 8 hp/tick cold damage, 1.5× winter upkeep.
+- **Cold zone**: energy threshold 50, up to 25 hp/tick cold damage, 3.0× winter upkeep.
+- **Temperate zone**: energy threshold 30, up to 10 hp/tick cold damage, 1.5× winter upkeep.
 - **Tropical zone**: no winter cold damage, no upkeep increase.
 
-This creates the primary selection pressure that drives population concentration in the tropical zone during Phase 1.
+This creates strong selection pressure that drives population concentration in the tropical zone. In Phase 1, the cold zone is effectively uninhabitable without emergent adaptations (food storage, shelter, clothing). By year 2-5, cold zone populations drop from 20-30 residents to near-extinction (0-3 residents).
 
 #### Random Accidents
 
@@ -363,12 +363,13 @@ When multiple hungry residents compete for scarce food on the same cell (biomass
 Raiding is a desperate survival behavior triggered when a resident is starving (energy < 18) with no local food available:
 
 - The resident attacks an adjacent resident who has more energy (> 30).
-- Raid probability scales with the attacker's risk tolerance trait.
+- Raid probability: `0.3 + risk_tolerance × 0.5 + max(0, (pressure − 1.2) × 0.2)`
+- This means raiding probability increases sharply when population pressure exceeds 1.2, providing a safety valve for overpopulation crises.
 - If the raider wins (strength contest with randomness): steals up to 40% of victim's energy, victim takes 5–18 damage.
 - If the raider loses: takes 10–28 damage.
 - Raiding degrades social bonds between attacker and victim.
 
-Raiding increases sharply when population exceeds carrying capacity (Malthusian crisis), as more residents fall below the starvation threshold while food cells are depleted.
+Raiding becomes frequent during high-pressure periods (pressure > 1.4), creating visible conflict cycles and food redistribution under scarcity.
 
 ## Memory
 

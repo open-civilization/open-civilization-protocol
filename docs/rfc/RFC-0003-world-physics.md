@@ -306,8 +306,8 @@ The map is divided into three horizontal climate bands (top to bottom):
 
 | Zone      | Rows     | Season Multipliers                          | Winter Upkeep | Cold Threshold | Cold Damage |
 |-----------|----------|---------------------------------------------|---------------|----------------|-------------|
-| Cold      | 0–26     | spring 1.0, summer 0.7, autumn 0.2, winter 0.02 | 2.5×         | 45 energy      | 15 hp/tick  |
-| Temperate | 27–53    | spring 1.5, summer 1.0, autumn 0.5, winter 0.15 | 1.5×         | 30 energy      | 8 hp/tick   |
+| Cold      | 0–26     | spring 1.0, summer 0.7, autumn 0.2, winter 0.02 | 3.0×         | 50 energy      | 25 hp/tick  |
+| Temperate | 27–53    | spring 1.5, summer 1.0, autumn 0.5, winter 0.15 | 1.5×         | 30 energy      | 10 hp/tick  |
 | Tropical  | 54–79    | spring 1.1, summer 1.0, autumn 0.9, winter 0.8  | 1.0× (none)  | 0 (none)       | 0 (none)    |
 
 This creates a latitudinal survival gradient:

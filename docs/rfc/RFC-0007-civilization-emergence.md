@@ -165,9 +165,16 @@ These must emerge from resident behavior and knowledge accumulation (RFC-0006). 
 
 Phase 1 uses a 60×80 map divided into three climate zones (cold, temperate, tropical) with a total carrying capacity of approximately 170 residents. The initial population of 120 is scattered across all zones.
 
-The first winter acts as a founding bottleneck: the cold zone depopulates entirely, the temperate zone suffers heavy losses, and the tropical zone becomes the primary population center. This mirrors the real constraint that early human populations concentrated in habitable climate bands.
+The first winter acts as a founding bottleneck: the cold zone depopulates (30 residents → 0-3 over 5 years), the temperate zone stabilizes at 60-100 residents through selective pressure, and the tropical zone expands to 130-200 residents. This mirrors the real constraint that early human populations concentrated in habitable climate bands.
 
-Population typically overshoots carrying capacity to 200–250 before Malthusian mechanisms (malnutrition at `5.0 × (pressure−1)²`, fertility suppression, amplified disease) create equilibrium. Expansion into temperate and cold zones requires emergent winter survival adaptations — a key driver of civilization emergence.
+Population typically oscillates 220-270 around carrying capacity (170-180) under continuous Malthusian pressure. Key emergence drivers visible by year 10:
+
+- **Winter death cycles**: 20-30% population loss during cold season in temperate zone
+- **Raiding spikes**: 3-4 raids per 22 ticks when pressure > 1.4, creating visible conflict cycles
+- **Disease outbreaks**: 5-10 cases per 22 ticks under pressure, with serious illness visible in event log
+- **Food conflicts**: daily fights over depleted biomass cells
+
+Expansion into cold/temperate zones requires emergent adaptations: food storage (to survive winter scarcity), shelter technology (to reduce cold damage), or social organization (to coordinate large-scale winter preparation). Without these, populations remain concentrated in the tropical zone and cannot access global resources.
 
 ## Scaling Pressures
 
