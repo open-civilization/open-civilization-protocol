@@ -133,6 +133,12 @@ canvas{image-rendering:pixelated}
     <div class="stat"><span class="label">Avg Energy</span><span class="val" id="s-energy">0</span></div>
     <div class="stat"><span class="label">Avg Health</span><span class="val" id="s-health">0</span></div>
     <div class="stat"><span class="label">Avg Age</span><span class="val" id="s-age">0</span></div>
+    <h2>Knowledge</h2>
+    <div class="stat"><span class="label">Holders</span><span class="val" id="s-knowledge-holders">0</span></div>
+    <div class="stat"><span class="label">Avg Skill</span><span class="val" id="s-knowledge-skill">0</span></div>
+    <div class="stat"><span class="label">Ratio</span><span class="val" id="s-knowledge-ratio">0%</span></div>
+    <div class="stat"><span class="label">Writing 📝</span><span class="val" id="s-writing">No</span></div>
+    <div class="stat"><span class="label">Writers</span><span class="val" id="s-writing-holders">0</span></div>
     <h2>Emergence</h2>
     <div class="stat"><span class="label">Gini (energy)</span><span class="val" id="s-gini">0</span></div>
     <div class="stat"><span class="label">Clustering</span><span class="val" id="s-cluster">0</span></div>
@@ -386,6 +392,28 @@ function updateStats() {
   const prEl = $('s-pressure');
   prEl.textContent = pr;
   prEl.className = 'val ' + (pr > 1.2 ? 'red' : pr > 0.8 ? 'yellow' : 'green');
+
+  // Knowledge stats
+  const khEl = $('s-knowledge-holders');
+  khEl.textContent = m.knowledge_holders || 0;
+  khEl.className = 'val ' + (m.knowledge_holders > 0 ? 'green' : '');
+
+  const ksEl = $('s-knowledge-skill');
+  const skill = m.avg_storage_skill || 0;
+  ksEl.textContent = skill.toFixed(1);
+  ksEl.className = 'val ' + (skill < 5 ? 'red' : skill < 15 ? 'yellow' : 'green');
+
+  const krEl = $('s-knowledge-ratio');
+  const ratio = (m.knowledge_ratio || 0) * 100;
+  krEl.textContent = ratio.toFixed(1) + '%';
+  krEl.className = 'val ' + (ratio > 90 ? 'green' : ratio > 50 ? 'yellow' : '');
+
+  const wrEl = $('s-writing');
+  wrEl.textContent = m.has_writing ? '✓ Yes' : 'No';
+  wrEl.className = 'val ' + (m.has_writing ? 'green' : '');
+
+  $('s-writing-holders').textContent = m.writing_holders || 0;
+
   $('seed-info').textContent = `seed: ${state.seed}`;
 
   // AI stats
