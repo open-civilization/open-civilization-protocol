@@ -283,6 +283,19 @@ Death may occur from multiple causes, each modeled independently:
 - Population pressure multiplier: probability × pressure² when over carrying capacity.
 - Weakened residents (health < 40): probability × 1.5.
 - Damage: 10–35 health points per episode.
+- This is background, independent-per-resident disease risk. See Epidemic below for a distinct, population-scale mechanism.
+
+#### Epidemic (Genetic Resistance)
+
+Epidemics are distinct from ordinary background disease: a rarer, far more severe event that strikes a whole crowded area at once rather than rolling independently per resident per tick.
+
+**Mechanism:**
+- Each resident carries a heritable `immunity` trait (0–1, same inheritance/mutation model as other traits — RFC-0004 Trait System).
+- Every tick, the engine finds the most crowded cell. If its population is at or above a density threshold, there is a small per-tick chance an outbreak ignites there.
+- When an outbreak ignites, every resident within a radius of the hotspot is exposed simultaneously.
+- Each exposed resident's mortality probability is `0.35 × (1 − immunity)` — a resident with immunity near 1.0 is nearly unaffected; one with immunity near 0 faces a high chance of being gravely stricken (40 health damage, often fatal in combination with other stressors).
+
+**Why this matters:** because immunity is heritable, an epidemic does not kill uniformly — it selects. The residents who survive a severe outbreak are disproportionately the ones whose inherited immunity happened to be high, and they pass that trait to their offspring at the same rate as any other trait (mutation and blending included). Repeated epidemics in dense, settled populations should therefore raise average population immunity over generations — the same natural-selection-under-pressure pattern already established for food storage knowledge (RFC-0006), but operating on a genetic trait instead of a knowledge domain. This is deliberately left as a basic mechanism; more detailed genetics (specific resistance to specific pathogens, trade-offs, etc.) are a future refinement.
 
 #### Infant Mortality
 
@@ -418,6 +431,7 @@ Phase 1 SHOULD include traits affecting:
 - risk tolerance
 - sociability (tendency toward cooperation vs. solitary behavior)
 - learning rate
+- disease immunity (implemented — drives differential survival during epidemics, see Mortality Factors)
 
 ### Trait Properties
 

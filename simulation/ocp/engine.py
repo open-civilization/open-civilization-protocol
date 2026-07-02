@@ -34,6 +34,12 @@ DISEASE_BASE_CHANCE = 0.005
 DISEASE_CROWD_BONUS = 0.01
 DISEASE_DMG_MIN = 10
 DISEASE_DMG_MAX = 35
+# Epidemic — a distinct, rarer, population-scale event (see _tick for the mechanism)
+EPIDEMIC_DENSITY_THRESHOLD = 6   # radius-2 local population that creates outbreak risk
+EPIDEMIC_IGNITION_CHANCE = 0.02  # per tick, once density threshold is crossed anywhere
+EPIDEMIC_RADIUS = 3              # spatial radius of affected residents around the hotspot
+EPIDEMIC_BASE_MORTALITY = 0.35   # death chance for a resident with immunity=0
+EPIDEMIC_DMG = 40                # health damage dealt to stricken residents
 INFANT_AGE = 5
 INFANT_MORTALITY_CHANCE = 0.025
 CONFLICT_CHANCE = 0.18
@@ -207,6 +213,7 @@ class Traits:
     endurance: float
     sociability: float
     risk_tolerance: float
+    immunity: float = 0.5  # natural disease resistance; heritable, drives epidemic survival
 
     @staticmethod
     def random():
@@ -217,6 +224,7 @@ class Traits:
             endurance=random.uniform(0.6, 1.4),
             sociability=random.uniform(0.1, 0.9),
             risk_tolerance=random.uniform(0.1, 0.9),
+            immunity=random.uniform(0.1, 0.9),
         )
 
     def mutate(self):
@@ -229,6 +237,7 @@ class Traits:
             endurance=m(self.endurance, 0.3, 1.8),
             sociability=m(self.sociability, 0.0, 1.0),
             risk_tolerance=m(self.risk_tolerance, 0.0, 1.0),
+            immunity=m(self.immunity, 0.0, 1.0),
         )
 
     def blend(self, other):
@@ -239,6 +248,7 @@ class Traits:
             endurance=(self.endurance + other.endurance) / 2,
             sociability=(self.sociability + other.sociability) / 2,
             risk_tolerance=(self.risk_tolerance + other.risk_tolerance) / 2,
+            immunity=(self.immunity + other.immunity) / 2,
         ).mutate()
 
 
@@ -947,6 +957,34 @@ class Simulation:
         for r in living:
             cell_pop[(r.x, r.y)] = cell_pop.get((r.x, r.y), 0) + 1
 
+        # Epidemic — distinct from the ordinary background disease roll below: a rarer,
+        # far more severe event that ignites when local crowding crosses a threshold and
+        # sweeps through everyone nearby at once, rather than rolling independently per
+        # resident per tick. Mortality is modulated by each resident's heritable immunity
+        # trait, so an outbreak leaves behind a population enriched for natural resistance
+        # — the survivors are not chosen, they are the ones whose inherited immunity trait
+        # happened to be high enough, and they pass that trait to their offspring.
+        # Density is measured within a small radius (residents rarely share an exact cell
+        # in an open map, but do cluster within a few cells of each other).
+        best_density, hotspot_cell = 0, None
+        for (cx, cy), _ in cell_pop.items():
+            local_density = sum(c for (ox, oy), c in cell_pop.items() if abs(ox - cx) + abs(oy - cy) <= 2)
+            if local_density > best_density:
+                best_density, hotspot_cell = local_density, (cx, cy)
+        if best_density >= EPIDEMIC_DENSITY_THRESHOLD and random.random() < EPIDEMIC_IGNITION_CHANCE:
+            hx, hy = hotspot_cell
+            affected = [r for r in living if abs(r.x - hx) + abs(r.y - hy) <= EPIDEMIC_RADIUS]
+            deaths_from_epidemic = 0
+            for r in affected:
+                mortality_p = EPIDEMIC_BASE_MORTALITY * (1.0 - r.traits.immunity)
+                if random.random() < mortality_p:
+                    r.health -= EPIDEMIC_DMG
+                    deaths_from_epidemic += 1
+            evts.append({'tick': tick, 'type': 'epidemic',
+                         'text': f'A disease outbreak sweeps a crowded area — {len(affected)} exposed, '
+                                 f'{deaths_from_epidemic} gravely stricken',
+                         'x': hx, 'y': hy})
+
         for r in living:
             if not r.alive:
                 continue
@@ -1251,6 +1289,7 @@ class Simulation:
             'writing_holders': writing_holders,
             'shelter_holders': shelter_holders,
             'clothing_holders': clothing_holders,
+            'avg_immunity': round(sum(r.traits.immunity for r in living) / max(1, n), 3),
         }
         self.metrics_history.append(metrics)
         if len(self.metrics_history) > 5000:
