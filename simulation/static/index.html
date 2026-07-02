@@ -258,12 +258,12 @@ function draw() {
         ctx.fillRect(x * cs, y * cs, cs, cs);
       }
 
-      // Draw granary storage indicator
-      const storage = state.storage ? state.storage[i] : 0;
-      if (storage > 0) {
-        const storageRatio = Math.min(1, storage / 200);
-        ctx.fillStyle = `rgba(200,140,60,${0.3 + storageRatio * 0.4})`;
-        ctx.fillRect(x * cs + cs * 0.7, y * cs, cs * 0.3, cs);
+      // Draw leftover food indicator (emergent storage)
+      const leftover = state.leftover ? state.leftover[i] : 0;
+      if (leftover > 0) {
+        const leftoverRatio = Math.min(1, leftover / 30);
+        ctx.fillStyle = `rgba(200,140,60,${0.2 + leftoverRatio * 0.5})`;
+        ctx.fillRect(x * cs + cs * 0.8, y * cs, cs * 0.2, cs);
       }
     }
   }

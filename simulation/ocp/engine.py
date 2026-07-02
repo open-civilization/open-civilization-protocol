@@ -97,17 +97,13 @@ class Cell:
     biomass_cap: float
     water: bool
     climate: str = 'temperate'
-    storage: float = 0.0  # Food stored in granary
-    storage_cap: float = 200.0  # Max storage capacity
+    leftover: float = 0.0  # Food left behind by residents (emergent storage)
 
     def passable(self):
         return self.terrain != 'lake'
 
     def season_mult(self, season):
         return CLIMATE_ZONES[self.climate][season]
-
-    def has_storage(self):
-        return self.storage_cap > 0
 
 
 @dataclass
@@ -341,33 +337,43 @@ def decide(r, grid, residents, tick, pressure=0.0):
     near_res = _nearby_residents(r.x, r.y, radius, residents)
     here = grid[r.y][r.x]
 
-    # DESPERATE: raid someone for food when starving and no food around
-    # Raid probability increases under population pressure
+    season = SEASONS[(tick // SEASON_LENGTH) % 4]
+
+    # SCAVENGE: Pick up leftover food if hungry (highest priority when available)
+    if r.energy < 50 and here.leftover > 3:
+        return ('scavenge', None, None, None)
+
+    # DESPERATE: raid nearby cells for leftover food (no killing needed)
+    if r.energy < 25 and here.biomass < 2 and here.leftover < 2:
+        # Look for nearby cells with leftovers
+        cells = _nearby_cells(r.x, r.y, 2, grid)
+        leftover_cells = [(c, d) for c, d in cells if c.leftover > 5 and d > 0]
+        if leftover_cells:
+            target_cell = max(leftover_cells, key=lambda x: x[0].leftover)[0]
+            return _step_toward(r.x, r.y, target_cell.x, target_cell.y, grid)
+
+    # RAID: attack someone for energy as last resort
     raid_base = 0.3 + r.traits.risk_tolerance * 0.5
     if pressure > 1.2:
-        raid_base += 0.2 * (pressure - 1.2)  # +20% per 0.1 units over 1.2
+        raid_base += 0.2 * (pressure - 1.2)
 
-    if r.energy < 18 and here.biomass < 3:
+    if r.energy < 18 and here.biomass < 3 and here.leftover < 2:
         adjacent = [(res, d) for res, d in near_res if d <= 1 and res.energy > 30]
         if adjacent and random.random() < raid_base:
             target = max(adjacent, key=lambda x: x[0].energy)[0]
             return ('raid', None, None, target.id)
 
-    # STORAGE: winter retrieval or autumn storage
-    season = SEASONS[(tick // SEASON_LENGTH) % 4]
-
-    # Winter: retrieve from storage if needed
-    if season == 'winter' and r.energy < 50 and here.storage > 5:
-        return ('retrieve', None, None, None)
-
-    # Autumn: store surplus food for winter
-    if season == 'autumn' and r.energy > 60 and here.storage_cap > 0 and here.storage < here.storage_cap * 0.8:
-        return ('store', None, None, None)
-
-    # Build storage if in temperate/cold zone and there's others here
-    if climate_zone(r.y) != 'tropical' and here.storage_cap <= 0 and len(near_res) > 0 and r.energy > 40:
-        if random.random() < 0.1:  # 10% chance when conditions are met
-            return ('build', None, None, None)
+    # MIGRATE: Move to warmer zone when resources fail (especially in winter)
+    if r.energy < 30 and season == 'winter' and climate_zone(r.y) != 'tropical':
+        # Try to move toward tropical zone
+        if r.y > 52:  # Already in tropical
+            pass
+        elif r.y > 26:  # In temperate, move toward tropical
+            target_y = min(r.y + 2, 79)
+            return ('move', r.x, target_y, None)
+        else:  # In cold, move toward temperate
+            target_y = min(r.y + 3, 79)
+            return ('move', r.x, target_y, None)
 
     # CRITICAL / HUNGRY: find food
     if r.energy < 40:
@@ -465,14 +471,21 @@ def _do_move(r, tx, ty, grid):
 
 def _do_forage(r, grid, tick, residents=None):
     cell = grid[r.y][r.x]
-    if cell.biomass <= 0:
+    if cell.biomass <= 0 and cell.leftover <= 0:
         return None
-    harvest = min(cell.biomass, 15 * r.traits.strength) * random.uniform(0.5, 1.0)
-    effort = 0.5 / r.traits.endurance
-    cell.biomass -= harvest
-    gain = harvest * 0.8
-    r.energy = min(MAX_ENERGY, r.energy + gain - effort)
-    r.food_total += harvest
+
+    # Harvest from biomass
+    if cell.biomass > 0:
+        harvest = min(cell.biomass, 15 * r.traits.strength) * random.uniform(0.5, 1.0)
+        effort = 0.5 / r.traits.endurance
+        cell.biomass -= harvest
+        gain = harvest * 0.8
+        r.energy = min(MAX_ENERGY, r.energy + gain - effort)
+        r.food_total += harvest
+
+        # Leave some food behind (emergent storage)
+        leftover_amount = harvest * random.uniform(0.1, 0.3)
+        cell.leftover += leftover_amount
 
     # Resource conflict — competition over scarce food
     if residents and cell.biomass < 15:
@@ -487,9 +500,22 @@ def _do_forage(r, grid, tick, residents=None):
             loser.health -= dmg
             return f'{r.name} fought {rival.name} over food — {loser.name} injured (-{dmg:.0f}hp)'
 
-    if harvest > 12:
-        return f'{r.name} gathered {harvest:.0f} food'
+    if cell.biomass > 12 or (cell.leftover > 0 and r.energy < MAX_ENERGY):
+        return f'{r.name} gathered food (leftover: {cell.leftover:.0f})'
     return None
+
+
+def _do_scavenge(r, grid):
+    """Scavenge leftovers left by previous foragers"""
+    cell = grid[r.y][r.x]
+    if cell.leftover <= 0:
+        return None
+
+    scavenged = min(cell.leftover * 0.7, MAX_ENERGY - r.energy)
+    cell.leftover -= scavenged
+    r.energy = min(MAX_ENERGY, r.energy + scavenged)
+
+    return f'{r.name} scavenged {scavenged:.0f} food from leftovers'
 
 
 def _do_interact(r, target_id, residents, tick):
@@ -586,44 +612,6 @@ def _do_raid(r, target_id, residents, tick):
         if r.id in target.bonds:
             target.bonds[r.id].quality = max(-1, target.bonds[r.id].quality - 0.5)
         return f'{r.name} tried to raid {target.name} — defeated (-{28:.0f}hp)'
-
-
-def _do_build_storage(r, grid):
-    """Build a granary at current location (costs energy, one-time)"""
-    cell = grid[r.y][r.x]
-    if cell.storage_cap > 0:
-        return f'{r.name} built a granary here'  # Already built
-    cell.storage_cap = 200.0
-    r.energy -= 20
-    return f'{r.name} constructed a granary'
-
-
-def _do_store(r, grid, amount=None):
-    """Store food in local granary"""
-    cell = grid[r.y][r.x]
-    if cell.storage_cap <= 0:
-        return None  # No storage here
-    if amount is None:
-        amount = min(r.energy * 0.5, cell.storage_cap - cell.storage)  # Store up to 50% of energy
-    if amount <= 0:
-        return None
-    r.energy -= amount * 1.2  # Storing costs 20% extra energy
-    cell.storage += amount
-    return f'{r.name} stored {amount:.0f} food (now: {cell.storage:.0f})'
-
-
-def _do_retrieve(r, grid, amount=None):
-    """Retrieve food from local granary"""
-    cell = grid[r.y][r.x]
-    if cell.storage <= 0:
-        return None  # No storage available
-    if amount is None:
-        amount = min((MAX_ENERGY - r.energy) * 0.8, cell.storage)  # Take up to 80% of what we need
-    if amount <= 0:
-        return None
-    r.energy += amount
-    cell.storage -= amount
-    return f'{r.name} retrieved {amount:.0f} food (now: {cell.storage:.0f})'
 
 
 # ── Main Simulation ──
@@ -725,6 +713,15 @@ class Simulation:
             if season == 'winter' and cold_thr > 0 and r.energy < cold_thr:
                 r.health -= cold_dmg * (1.0 - r.energy / cold_thr)
 
+            # Winter starvation — if in non-tropical zone during winter and food scarce, high death rate
+            if season == 'winter' and climate_zone(r.y) != 'tropical':
+                here = grid[r.y][r.x]
+                if here.biomass < 5 and here.leftover < 5 and r.energy < 30:
+                    # Intense starvation pressure in winter
+                    r.health -= 8  # Base starvation damage
+                    if r.energy < 15:
+                        r.health -= 12  # Extra damage if critically low
+
             # Disease — base chance + crowding + pressure
             crowd = cell_pop.get((r.x, r.y), 1) - 1
             disease_p = (DISEASE_BASE_CHANCE + DISEASE_CROWD_BONUS * crowd) * pressure_mult
@@ -797,12 +794,8 @@ class Simulation:
                 msg = _do_interact(r, tid, self.residents, tick)
             elif action == 'raid':
                 msg = _do_raid(r, tid, self.residents, tick)
-            elif action == 'build':
-                msg = _do_build_storage(r, self.grid)
-            elif action == 'store':
-                msg = _do_store(r, self.grid)
-            elif action == 'retrieve':
-                msg = _do_retrieve(r, self.grid)
+            elif action == 'scavenge':
+                msg = _do_scavenge(r, self.grid)
             elif action == 'reproduce':
                 msg, self._next_id = _do_reproduce(r, tid, self.residents, self.grid, tick, self._next_id)
 
@@ -879,12 +872,12 @@ class Simulation:
             living = [r for r in self.residents if r.alive]
             terrain = []
             biomass = []
-            storage = []
+            leftover = []
             for row in self.grid:
                 for c in row:
                     terrain.append(c.terrain)
                     biomass.append(round(c.biomass, 1))
-                    storage.append(round(c.storage, 1))
+                    leftover.append(round(c.leftover, 1))
 
             res_data = [{
                 'id': r.id, 'name': r.name, 'x': r.x, 'y': r.y,
@@ -904,7 +897,7 @@ class Simulation:
             zone_boundary = GRID_H // 3
             return {
                 'gw': GRID_W, 'gh': GRID_H,
-                'terrain': terrain, 'biomass': biomass, 'storage': storage,
+                'terrain': terrain, 'biomass': biomass, 'leftover': leftover,
                 'residents': res_data,
                 'metrics': m,
                 'history': self.metrics_history[-300:],
