@@ -488,20 +488,29 @@ def decide(r, grid, residents, tick, pressure=0.0):
             target_cell = max(leftover_cells, key=lambda x: x[0].leftover)[0]
             return _step_toward(r.x, r.y, target_cell.x, target_cell.y, grid)
 
-    # RAID: attack someone for energy as last resort
+    # RAID: attack someone for energy as last resort — a Malthusian release valve.
+    # Under moderate pressure, targeting is biased toward strangers (resource seizure
+    # from outsiders); only under extreme pressure does that bias fade, representing
+    # conflict breaking out even within one's own established relationships once
+    # scarcity is severe enough (RFC-0007: no engine-authored Group/War object, this is
+    # purely individual-level targeting bias using the existing bond system).
     raid_base = 0.3 + r.traits.risk_tolerance * 0.5
     if pressure > 1.2:
-        raid_base += 0.2 * (pressure - 1.2)
+        raid_base += 0.25 * (pressure - 1.2)
 
     if r.energy < 18 and here.biomass < 3 and here.leftover < 2:
         adjacent = [(res, d) for res, d in near_res if d <= 1 and res.energy > 30]
         if adjacent and random.random() < raid_base:
-            target = max(adjacent, key=lambda x: x[0].energy)[0]
+            strangers = [(res, d) for res, d in adjacent
+                         if res.id not in r.bonds or r.bonds[res.id].quality <= 0]
+            # Below extreme pressure, prefer seizing from strangers over one's own
+            # established relationships; only true crisis (pressure >= 2.0) erodes that
+            pool = strangers if (strangers and pressure < 2.0) else adjacent
+            target = max(pool, key=lambda x: x[0].energy)[0]
             return ('raid', None, None, target.id)
 
-    # MIGRATE: Move to warmer zone when resources fail (especially in winter)
+    # MIGRATE (winter): move to a warmer zone when the cold itself is the acute threat
     if r.energy < 30 and season == 'winter' and climate_zone(r.y) != 'tropical':
-        # Try to move toward tropical zone
         if r.y > 52:  # Already in tropical
             pass
         elif r.y > 26:  # In temperate, move toward tropical
@@ -510,6 +519,18 @@ def decide(r, grid, residents, tick, pressure=0.0):
         else:  # In cold, move toward temperate
             target_y = min(r.y + 3, 79)
             return ('move', r.x, target_y, None)
+
+    # MIGRATE (general): under sustained high population pressure — regardless of season
+    # or zone — spread out toward less-crowded, better-resourced ground rather than
+    # compete for the same depleted local patch. This is expansion into unclaimed
+    # territory as a release valve, not a scripted settlement mechanic: the resident
+    # simply moves toward the best food it can see within a wider search radius.
+    if pressure > 1.3 and r.energy < 55 and random.random() < 0.12:
+        wide_cells = _nearby_cells(r.x, r.y, radius + 4, grid)
+        far_candidates = [(c, d) for c, d in wide_cells if d > radius and c.biomass > 15]
+        if far_candidates:
+            target_cell = max(far_candidates, key=lambda x: x[0].biomass)[0]
+            return _step_toward(r.x, r.y, target_cell.x, target_cell.y, grid)
 
     # CRITICAL / HUNGRY: find food
     if r.energy < 40:

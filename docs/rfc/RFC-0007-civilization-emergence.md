@@ -163,18 +163,19 @@ These must emerge from resident behavior and knowledge accumulation (RFC-0006). 
 
 ### Phase 1 Calibration
 
-Phase 1 uses a 60×80 map divided into three climate zones (cold, temperate, tropical) with a total carrying capacity of approximately 170 residents. The initial population of 120 is scattered across all zones.
+Phase 1 uses a 60×80 map divided into three climate zones (cold, temperate, tropical). The initial population of 55 is seeded near the environment's natural baseline capacity and scattered across all zones — the engine does not target a fixed carrying-capacity number; it emerges from terrain, season multipliers, and whatever knowledge the population happens to discover.
 
-The first winter acts as a founding bottleneck: the cold zone depopulates (30 residents → 0-3 over 5 years), the temperate zone stabilizes at 60-100 residents through selective pressure, and the tropical zone expands to 130-200 residents. This mirrors the real constraint that early human populations concentrated in habitable climate bands.
+The first winter acts as a founding bottleneck: the cold zone reliably depopulates to zero within the first year (no domesticated animals, storage, clothing, or shelter exist yet to make it survivable), the temperate zone stabilizes through selective winter pressure, and the tropical zone — survivable at baseline without any knowledge — becomes the initial population center. This mirrors the real constraint that early human populations concentrated in habitable climate bands before adaptation technologies existed.
 
-Population typically oscillates 220-270 around carrying capacity (170-180) under continuous Malthusian pressure. Key emergence drivers visible by year 10:
+Because carrying capacity itself rises as domestication, shelter, and clothing spread (see RFC-0003, RFC-0006), population is not a fixed oscillation band but a rising one. A verified 70-year (2269-tick) run: population grew from the 55-person seed to a stable ~300, with carrying capacity rising from a baseline around 130-160 to 185+ as cultivated land expanded, while population pressure oscillated persistently around 1.4-1.6 (moderate, sustained overshoot, not runaway collapse). Key emergence drivers visible across such a run:
 
-- **Winter death cycles**: 20-30% population loss during cold season in temperate zone
-- **Raiding spikes**: 3-4 raids per 22 ticks when pressure > 1.4, creating visible conflict cycles
-- **Disease outbreaks**: 5-10 cases per 22 ticks under pressure, with serious illness visible in event log
-- **Food conflicts**: daily fights over depleted biomass cells
+- **Winter death cycles**: recurring, real losses each winter, softened but never eliminated by food storage/shelter/clothing knowledge as it spreads
+- **Epidemic outbreaks**: population-scale events triggered by local crowding density, with visible death-rate spikes (observed up to 12 deaths/tick against a 2-5/tick background) and a rising population-average `immunity` trait afterward — outbreaks select for resistance, they don't just cull randomly
+- **Raiding under pressure**: raid probability scales with population pressure past 1.2; targeting is biased toward non-bonded strangers (resource seizure from outsiders) below pressure 2.0, and only loses that bias — spilling into established relationships — under extreme, sustained crisis
+- **General migration under pressure**: once pressure exceeds 1.3, residents actively search a wider radius for less-crowded, better-resourced ground rather than compete on a depleted local patch, independent of season — a spatial release valve for overshoot, distinct from the winter-specific cold-avoidance migration
+- **Language and writing**: both are downstream of population and cooperation reaching a real scale — in the verified run, neither appeared until population pressure had been sustained above ~0.6-0.9 for many generations, then both reached ~75% adoption within a few hundred further ticks (see RFC-0006)
 
-Expansion into cold/temperate zones requires emergent adaptations: food storage (to survive winter scarcity), shelter technology (to reduce cold damage), or social organization (to coordinate large-scale winter preparation). Without these, populations remain concentrated in the tropical zone and cannot access global resources.
+Expansion into the cold zone specifically remains gated on emergent adaptation (principally `animal_husbandry`, the zone's suited domestication path) rather than population pressure alone — pressure drives residents to spread out and compete harder, but it cannot make an unsurvivable winter survivable by itself.
 
 ## Scaling Pressures
 
