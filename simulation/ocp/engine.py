@@ -184,7 +184,7 @@ class Resident:
     death_cause: Optional[str] = None
     children: int = 0
     food_total: float = 0.0
-    skills: dict = field(default_factory=lambda: {'food_storage': 0.0, 'agriculture': 0.0})
+    skills: dict = field(default_factory=lambda: {'food_storage': 0.0})
     known_knowledge: dict = field(default_factory=lambda: {})  # knowledge_name -> {level, source, tick_learned}
 
     def view_radius(self):
@@ -319,8 +319,7 @@ def _spawn(rid, grid, tick, parent=None, partner=None):
     child = Resident(rid, _rand_name(), x, y, 0, nrg, MAX_HEALTH, traits,
                     True, pid, gen, [], {}, tick)
     child.known_knowledge = inherited_knowledge
-    child.skills = {'food_storage': inherited_knowledge.get('food_storage', {}).get('level', 0) * 100,
-                    'agriculture': inherited_knowledge.get('agriculture', {}).get('level', 0) * 100}
+    child.skills = {'food_storage': inherited_knowledge.get('food_storage', {}).get('level', 0) * 100}
     return child
 
 
@@ -920,40 +919,6 @@ class Simulation:
         if storage_holders > 0:
             avg_storage_skill = sum(r.skills.get('food_storage', 0) for r in living if 'food_storage' in r.known_knowledge) / storage_holders
 
-        # Writing system emergence — pressure when knowledge degrades too much through oral transmission
-        # When average skill degrades below threshold AND there's widespread knowledge,
-        # high-sociability individuals discover symbolic recording
-        if storage_holders > n * 0.3 and avg_storage_skill < 5.0 and not hasattr(self, '_has_writing'):
-            # Someone invents writing/symbols
-            candidates = [r for r in living if r.traits.sociability > 0.6 and 'food_storage' in r.known_knowledge]
-            if candidates and random.random() < 0.15:
-                inventor = random.choice(candidates)
-                self._has_writing = True
-                evts.append({'tick': tick, 'type': 'discovery',
-                             'text': f'{inventor.name} invented a system of symbols to record knowledge!',
-                             'x': inventor.x, 'y': inventor.y})
-                # Give the inventor an upgraded skill to use writing
-                inventor.known_knowledge['writing'] = {
-                    'level': 0.5,
-                    'source': 'invented',
-                    'tick_learned': tick
-                }
-                inventor.skills['writing'] = 50.0
-
-        # Writing transmission — much higher fidelity than oral tradition
-        if hasattr(self, '_has_writing') and self._has_writing:
-            writing_holders = sum(1 for r in living if 'writing' in r.known_knowledge)
-            # Those who know writing can transmit knowledge with much higher fidelity
-            for r in living:
-                if 'writing' in r.known_knowledge and r.known_knowledge.get('food_storage', {}).get('level', 0) < 0.8:
-                    # Can reinforce their own knowledge through written records
-                    r.known_knowledge['food_storage'] = {
-                        'level': min(0.8, (r.known_knowledge.get('food_storage', {}).get('level', 0) + 0.15)),
-                        'source': 'written_records',
-                        'tick_learned': tick
-                    }
-                    r.skills['food_storage'] = r.known_knowledge['food_storage']['level'] * 100
-
         metrics = {
             'tick': tick,
             'season': season,
@@ -974,8 +939,6 @@ class Simulation:
             'knowledge_holders': storage_holders,  # People who know food storage
             'avg_storage_skill': round(avg_storage_skill, 1),
             'knowledge_ratio': round(storage_holders / max(1, n), 3),
-            'has_writing': getattr(self, '_has_writing', False),
-            'writing_holders': sum(1 for r in living if 'writing' in r.known_knowledge) if hasattr(self, '_has_writing') else 0,
         }
         self.metrics_history.append(metrics)
         if len(self.metrics_history) > 5000:
