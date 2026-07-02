@@ -715,7 +715,7 @@ class Simulation:
 
             # Winter starvation — if in non-tropical zone during winter and food scarce, high death rate
             if season == 'winter' and climate_zone(r.y) != 'tropical':
-                here = grid[r.y][r.x]
+                here = self.grid[r.y][r.x]
                 if here.biomass < 5 and here.leftover < 5 and r.energy < 30:
                     # Intense starvation pressure in winter
                     r.health -= 8  # Base starvation damage
