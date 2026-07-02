@@ -189,12 +189,28 @@ def check_trigger(resident, nearby_residents, grid, tick):
     if r.energy > 85 and r.health > 85 and r.age > 15 and random.random() < 0.08:
         return 'surplus', "You feel well-fed and safe. You have a moment to think."
 
+    # Trigger 4: Cultural moment — a developed, well-fed group with no shared words yet,
+    # or a knowledge-rich group with words but no way to keep them. This is narrative
+    # flavor only: the mechanical discovery of spoken_language/writing in engine.py is a
+    # deterministic rule keyed on group size, energy surplus, and population pressure, and
+    # does not depend on this trigger firing or on the AI being enabled at all.
+    if (len(r.bonds) >= 5 and r.energy > 65 and r.age > 15
+            and 'spoken_language' not in r.known_knowledge and random.random() < 0.05):
+        return 'cultural_language', ("Your group has grown large and you spend time near the same "
+                                      "people every day. You keep wanting to point at things and say "
+                                      "something, but there are no shared words for it yet.")
+    if ('spoken_language' in r.known_knowledge and 'writing' not in r.known_knowledge
+            and len(r.known_knowledge) >= 3 and r.energy > 55 and random.random() < 0.05):
+        return 'cultural_writing', ("Your people now know more than any one person can hold in memory. "
+                                     "Stories get told wrong. You wonder if marks on stone or wood could "
+                                     "hold what memory loses.")
+
     return None, None
 
 
 # ── Prompt Construction (RFC-0005: observation window only) ──
 
-def build_prompt(resident, grid, nearby_cells, nearby_residents, trigger_text):
+def build_prompt(resident, grid, nearby_cells, nearby_residents, trigger_text, trigger_type=None):
     r = resident
     here = grid[r.y][r.x]
 
@@ -232,7 +248,7 @@ def build_prompt(resident, grid, nearby_cells, nearby_residents, trigger_text):
     energy_desc = 'starving' if r.energy < 15 else 'hungry' if r.energy < 35 else 'adequate' if r.energy < 65 else 'well-fed'
     health_desc = 'injured' if r.health < 40 else 'tired' if r.health < 70 else 'healthy'
 
-    return f"""You are {r.name}. You live in a wild world. You know nothing about Earth or human history — only what you have seen and been told.
+    header = f"""You are {r.name}. You live in a wild world. You know nothing about Earth or human history — only what you have seen and been told.
 
 State: {energy_desc} (energy {r.energy:.0f}/100), {health_desc} (health {r.health:.0f}/100), age {r.age}
 Where: ({r.x},{r.y}) on {here.terrain}
@@ -245,9 +261,14 @@ People nearby:
 {social}
 
 Situation: {trigger_text}
+"""
 
-What do you do? Pick ONE: move, forage, rest, approach someone, share food, or explore a new direction.
-Reply in under 30 words with your action and a short reason."""
+    if trigger_type == 'cultural_language':
+        return header + "\nInvent ONE short spoken word or sound for something you deal with constantly (food, water, danger, a person). Reply in under 20 words: the word and what it means."
+    if trigger_type == 'cultural_writing':
+        return header + "\nInvent ONE simple mark or symbol you could scratch or draw to represent something important. Reply in under 20 words: describe the mark and what it stands for."
+
+    return header + "\nWhat do you do? Pick ONE: move, forage, rest, approach someone, share food, or explore a new direction.\nReply in under 30 words with your action and a short reason."
 
 
 # ── Response Parsing ──
@@ -373,17 +394,24 @@ class AIEngine:
                     if 0 <= nx < len(grid[0]) and 0 <= ny < len(grid) and abs(dx) + abs(dy) <= radius:
                         nearby_cells_data.append((grid[ny][nx], abs(dx) + abs(dy)))
 
-            prompt = build_prompt(r, grid, nearby_cells_data, nr, trigger_text)
+            prompt = build_prompt(r, grid, nearby_cells_data, nr, trigger_text, trigger_type)
             r._ai_calls += 1
             self.total_calls += 1
             calls_this_tick += 1
 
             rname = r.name
             nr_snapshot = [(n, d) for n, d in nr]
+            is_cultural = trigger_type in ('cultural_language', 'cultural_writing')
 
-            def _do_call(p=prompt, prov=provider, key=api_key, mdl=model, nrs=nr_snapshot, name=rname):
+            def _do_call(p=prompt, prov=provider, key=api_key, mdl=model, nrs=nr_snapshot, name=rname, cultural=is_cultural):
                 text = call_llm(prov, key, mdl, p)
-                action = parse_response(text, nrs) if text else None
+                if cultural:
+                    # Narrative-only: the mechanical discovery is decided deterministically
+                    # in engine.py. A benign no-op action just lets the invented word/mark
+                    # surface as an event through the normal AI-decision log.
+                    action = ('rest', None, None, None) if text else None
+                else:
+                    action = parse_response(text, nrs) if text else None
                 return action, text, name
 
             self.pending[r.id] = self.executor.submit(_do_call)

@@ -289,28 +289,23 @@ Death may occur from multiple causes, each modeled independently:
 - Residents under age 5 face 2.5% per tick chance of health loss (8–20 damage).
 - This produces meaningful childhood mortality consistent with primitive-era demographics.
 
-#### Winter Exposure (Knowledge-Dependent)
+#### Winter Exposure (Starvation-Driven)
 
-Winter damage is climate-zone dependent with **direct scaling to food storage knowledge**:
+Winter creates acute food scarcity (0.005–0.05× regrowth relative to baseline, see RFC-0003) that drives mortality through the ordinary starvation mechanism — there is no separate, scripted "winter death roll."
 
-- **Tropical zone**: 0.05× food regrow in winter
-  - WITH food_storage skill > 30: survive with 20% death rate
-  - WITHOUT food_storage skill: 70%+ death rate
-  
-- **Temperate zone**: 0.02× food regrow in winter  
-  - WITH food_storage skill > 50: survive with 30% death rate
-  - WITHOUT food_storage skill: 95%+ death rate (knowledge is critical)
-  
-- **Cold zone**: 0.005× food regrow in winter
-  - Effectively uninhabitable unless food_storage skill > 70
-  - With skill < 70: 99%+ death rate
+**Mechanism:**
+- Winter multiplies each resident's per-tick upkeep cost by a zone-specific factor: tropical 1.3×, temperate 1.8×, cold 2.8×.
+- Food storage knowledge reduces this multiplier by up to 30% at full skill (`level 1.0`), representing food preserved from abundant seasons being drawn down during scarcity.
+- Near-zero winter regrowth (0.005–0.05×) means foraging cannot offset upkeep, so energy reserves deplete steadily through the season.
+- When energy reaches 0, ordinary starvation damage applies (see above); residents below the zone's cold threshold also take direct cold exposure damage.
+- Cold zone thresholds and damage are severe enough (`cold_threshold=50`, `cold_dmg=14`, `winter_upkeep=2.8×`) that without food storage knowledge, cold-zone residents are reliably killed off within a single winter — there is no domesticated animal, clothing, or shelter system yet to blunt this. This is a deliberate consequence of the model, not a special-cased death rule.
+- Tropical and temperate zones are survivable at baseline: winter is costly but not universally lethal, so a knowledge-free population persists there while thinning each winter.
 
-**Knowledge-Survival Formula:**
-```
-winter_survival_rate = 1.0 - (0.7 - food_storage_knowledge * 0.01)
-```
-
-This creates **natural selection for knowledge**: residents with food storage knowledge have dramatically higher winter survival rates. By year 5-10, population converges to knowledge holders. By year 10-20, knowledge improves as better-informed residents outbreed poorly-informed ones — the second iteration begins.
+**Natural Selection Path:**
+- Winters recur every year and impose real, repeated losses — this is not a single filtering event but an ongoing pressure.
+- Residents with food storage knowledge lose energy more slowly each winter and so survive more reliably.
+- Surviving knowledge-holders reproduce more (see Reproduction) and transmit knowledge to offspring with fidelity loss (see RFC-0006), so the proportion of knowledge-holders in the population rises over generations.
+- If a lineage loses the knowledge (e.g. through population bottleneck or isolation), winter mortality reverts to the higher no-knowledge baseline for that group — knowledge loss has a real, felt cost.
 
 #### Random Accidents
 

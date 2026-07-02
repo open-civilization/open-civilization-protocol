@@ -279,16 +279,44 @@ This creates a natural population ceiling: growth overshoots carrying capacity �
 
 The carrying capacity ceiling is NOT fixed forever. It can only be raised by emergent changes that alter the terms of the equation:
 
-- Agricultural techniques (if they emerge) increase effective regrow rates.
-- Food storage (if it emerges) smooths seasonal variation.
+- Agricultural techniques and animal husbandry (implemented — see below) increase effective regrow rates.
+- Food storage (implemented — see RFC-0004) smooths seasonal variation.
 - Tool use (if it emerges) increases foraging efficiency.
 - Trade (if it emerges) redistributes surplus from abundant to scarce zones.
 
-None of these are designed. They must arise from the interaction of life, knowledge, and environment. Until they do, the Malthusian ceiling holds.
+None of these are designed as unlocks. They arise from the interaction of life, knowledge, and environment (see RFC-0006 for the acquisition pathway). Until they emerge in a given lineage or region, the Malthusian ceiling holds.
+
+### Domestication and Land Improvement
+
+Cells carry a `cultivation` state (0 to 1) representing sustained agricultural or pastoral improvement, distinct from `biomass` (the immediate standing stock of food). Cultivation is not seeded or scripted — it accumulates only when a resident who holds the relevant knowledge (`crop_cultivation` or `animal_husbandry`, see RFC-0006) works a cell whose terrain and climate zone are physically suited to that activity.
+
+**Terrain suitability** (a physical property of the land, like `biomass_cap`):
+
+| Terrain  | Farming Suitability | Grazing Suitability |
+|----------|---------------------|----------------------|
+| Plains   | 1.0                 | 0.8                  |
+| River    | 0.7                 | 0.0                  |
+| Forest   | 0.2                 | 0.0                  |
+| Mountain | 0.0                 | 1.0                  |
+| Desert   | 0.0                 | 0.3                  |
+
+**Zone suitability** (why cold zones graze and temperate zones farm, not the reverse):
+
+| Zone      | Farming Suitability | Grazing Suitability | Rationale |
+|-----------|----------------------|-----------------------|-----------|
+| Cold      | 0.1                  | 1.0                   | Short growing season unsuited to crops; open cold-tolerant terrain suits herding |
+| Temperate | 1.0                  | 0.25                  | Long enough growing season and fertile plains favor cultivation |
+| Tropical  | 0.0                  | 0.0                    | Baseline foraging is already abundant enough that domestication provides no discovered advantage in Phase 1 — tropical populations remain at natural primary production |
+
+A cell's effective terrain suitability is `terrain_suitability × zone_suitability`. Since tropical zone suitability is 0 for both activities, domestication cannot take hold there regardless of terrain — this is a physical constraint of the model, not a scripted gate.
+
+**Effect on productivity**: a cultivated cell's biomass regrowth is multiplied by `1 + cultivation × 7.0`, so land at full cultivation regenerates up to 8× faster than wild land of the same terrain. This bonus feeds directly into the carrying capacity formula (see above), so as cultivation spreads across a region, that region's sustainable population rises — this is the mechanism by which domestication multiplies a zone's baseline energy output, as opposed to a one-time unlock.
+
+**Entropy**: cultivation decays slowly when a cell is not actively worked, so abandoned farmland or pasture reverts toward wild land over time (RFC-0001 Law 10). Sustaining an improved landscape requires an ongoing, living population of knowledge-holders, not a permanent flag.
 
 ### Phase 1 Calibration
 
-Phase 1 uses a 60×80 map with carrying capacity ≈ 170 residents (extraction inefficiency multiplier = 8.0). Initial population is 120, scattered across all three climate zones.
+Phase 1 uses a 60×80 map. Initial population is seeded near the environment's natural baseline capacity (~55 residents) and is allowed to find its own equilibrium through births and deaths — the engine does not target a fixed carrying-capacity number, it emerges from terrain, season multipliers, and mortality mechanics.
 
 | Terrain   | Biomass Cap | Regrow Rate |
 |-----------|------------|-------------|
@@ -304,19 +332,25 @@ Phase 1 uses a 60×80 map with carrying capacity ≈ 170 residents (extraction i
 
 The map is divided into three horizontal climate bands (top to bottom):
 
-| Zone      | Rows     | Season Multipliers                          | Winter Upkeep | Cold Threshold | Cold Damage |
-|-----------|----------|---------------------------------------------|---------------|----------------|-------------|
-| Cold      | 0–26     | spring 1.0, summer 0.7, autumn 0.2, winter 0.005 | 5.0×         | 50 energy      | 30 hp/tick  |
-| Temperate | 27–53    | spring 1.5, summer 1.0, autumn 0.5, winter 0.02  | 3.0×         | 35 energy      | 20 hp/tick  |
-| Tropical  | 54–79    | spring 1.1, summer 1.0, autumn 0.9, winter 0.05  | 2.0×         | 20 energy      | 8 hp/tick   |
+| Zone      | Rows     | Season Multipliers                                | Non-Winter Character | Winter Character |
+|-----------|----------|----------------------------------------------------|-----------------------|-------------------|
+| Cold      | 0–26     | spring 1.1, summer 0.8, autumn 0.35, winter 0.005  | Modest growth possible | Uninhabitable without knowledge — population converges to zero |
+| Temperate | 27–53    | spring 1.4, summer 1.0, autumn 0.55, winter 0.02   | Sustains a small population | Harsh bottleneck; knowledge meaningfully improves survival |
+| Tropical  | 54–79    | spring 1.2, summer 1.0, autumn 0.75, winter 0.05   | Sustains the largest population | Seasonal challenge; knowledge accelerates growth |
 
-This creates a **survival bottleneck in winter**:
+**Survival Model: Knowledge Optimizes a Viable Baseline, Doesn't Gatekeep It**
 
-- **Tropical**: reduced food in winter (0.05×). Without food storage knowledge, 70% population dies.
-- **Temperate**: severe winter (0.02×). Storage knowledge is critical for survival. Non-storage population: 95%+ death rate.
-- **Cold**: uninhabitable (0.005×). Only viable with advanced storage knowledge and technical adaptation.
+Non-winter seasons are generous enough that a population can establish and grow in temperate and tropical zones with zero knowledge. Winter is the recurring bottleneck:
 
-In Phase 1, the cold zone depopulates within the first few years. The temperate zone supports marginal populations. The tropical zone becomes the population center. Expansion into colder zones requires emergent adaptations (food storage, shelter, clothing) that raise effective winter survival — a key milestone in civilization emergence.
+- **No knowledge**: winter upkeep costs scale by zone (tropical 1.3×, temperate 1.8×, cold 2.8×) against near-zero regrowth, producing real starvation losses each winter — heaviest in cold, moderate in temperate, lightest in tropical.
+- **With food storage knowledge**: winter upkeep is reduced (up to 30% at full skill), meaningfully raising survival odds without making survival deterministic.
+- **Cold zone is a special case**: even a theoretical non-winter carrying capacity is irrelevant if winter alone is unsurvivable. Without stored food, shelter, or clothing — none of which exist by default — cold-zone populations are killed off by winter within their first year. This is intentional: pre-knowledge humans without domesticated animals or storage technique genuinely could not winter in cold climates. Cold zone habitation is a downstream consequence of knowledge accumulation, not a baseline given.
+
+**Why This Matters**:
+- Base environment is viable in tropical/temperate zones: population can establish and grow without any knowledge
+- Cold zone is legitimately uninhabitable at baseline — this is physically honest, not a scripted gate
+- Winter is a recurring, real mortality event, not a one-time filter
+- Knowledge provides a genuine, gradual survival edge without becoming a hard requirement for life itself
 
 Terrain generation varies by climate zone: cold zones have more mountains and fewer forests; tropical zones have more forests, rivers, and coastline; temperate zones use the baseline distribution.
 

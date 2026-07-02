@@ -62,16 +62,29 @@ Knowledge is local, mortal, costly, and **adaptive**.
 
 No resident knows the whole world. No discovery is permanent. No transmission is free or perfect.
 
-## Second Principle: Knowledge Drives Survival
+## Second Principle: Knowledge Optimizes Survival
 
-Knowledge is NOT decorative. It directly affects survival:
+Knowledge is NOT decorative, but it is NOT mandatory for baseline survival either.
 
-- **No knowledge → death** — During winter, residents without food storage knowledge face 70-95% death rates
-- **Better knowledge → higher survival** — Skill level 50 = 50% survival chance; skill level 80 = 80% survival chance
-- **Survival → reproduction** — Residents who survive winter have more children and transmit knowledge better
-- **Natural selection** — After year 10, non-knowledge holders are extinct; after year 20, poorly-informed are selected against
+**The model:**
+- **Base environment is viable** — tropical zone can sustain ~40 people without any knowledge; temperate ~10; cold ~5
+- **Winter creates scarcity pressure** — low regrowth in winter means residents face food shortage; without knowledge, winter death rates are high (20-50%)
+- **Knowledge provides competitive advantage** — residents with food storage knowledge survive winter better (~5-20% death vs 20-50% without)
+- **Survival leads to reproduction** — residents who survive winter reproduce more often; knowledge-holders transmit their knowledge to offspring
+- **Natural selection emerges** — after 5-10 years, knowledge-holders form a larger portion of population; after 10-20 years, partially-informed individuals are selected against
 
-This creates **generational knowledge ratchet**: each generation refines knowledge by eliminating weak versions through starvation.
+This creates **generational knowledge ratchet**: each generation adds slightly better knowledge; knowledge loss is possible but costly (populations revert to higher winter mortality).
+
+## Third Principle: Knowledge Multiplies Capacity, Not Just Survival Odds
+
+Some knowledge does more than improve an individual's odds against a fixed environment — it changes what the environment can support. Domestication (`crop_cultivation`, `animal_husbandry`) is the Phase 1 example: it doesn't gate survival the way winter food storage does, but where it takes hold it raises the land's productivity itself (see RFC-0003), so the population ceiling for a region rises as the knowledge spreads.
+
+**The distinction matters constitutionally:**
+- Survival-optimizing knowledge (food storage) changes an individual's odds against a fixed resource base.
+- Capacity-multiplying knowledge (domestication) changes the resource base itself, for knowledge-holders and non-holders on the same cultivated land alike.
+- Both remain emergent and reversible: capacity gains decay if the knowledge is lost or the land untended (RFC-0001 Law 10), just as survival gains do.
+
+A civilization's growth curve is therefore not a designed progression — it's the sum of which capacity-multiplying and survival-optimizing knowledge happened to be discovered, where, and whether it survived long enough to spread.
 
 ## Knowledge Representation
 
@@ -110,6 +123,8 @@ Knowledge MUST arise through one of the following pathways. No other pathway is 
 - Experiment is costlier than observation (energy, time, risk) but can reveal non-obvious relationships.
 - Example: trying to eat an unknown plant and observing the health effect.
 - Failed experiments SHOULD still produce knowledge (negative results are information).
+
+**Implemented example — domestication.** `crop_cultivation` and `animal_husbandry` are discovered exclusively through repeated Experiment: a resident foraging on terrain physically suited to the activity (see RFC-0003 Domestication and Land Improvement) has a small per-tick chance of discovering the technique. There is no scripted trigger, tick threshold, or population requirement — discovery is a probability roll gated only by physical suitability (terrain × climate zone), so whether and when domestication appears, and whether a population becomes farmers or herders, is a genuine random outcome of repeated environmental interaction. Once discovered, the knowledge deepens further through continued practice (a form of self-reinforcing Experiment) and spreads through the same Imitation, Communication, and Inheritance pathways as any other knowledge — nothing about its acquisition or transmission is special-cased.
 
 ### Imitation
 
@@ -204,6 +219,8 @@ Knowledge SHOULD affect action capability.
 - A resident who has learned a technique (fishing, fire-making, tool use) SHOULD perform the corresponding action more effectively than one who has not.
 - Effectiveness gains SHOULD be gradual, not binary unlocks.
 - Techniques learned by imitation SHOULD start at lower effectiveness than techniques learned by repeated personal practice.
+
+**Implemented example:** a resident with `crop_cultivation` or `animal_husbandry` foraging on suitable land converts a larger share of harvested biomass into usable energy (gradual, skill-scaled — never exceeding what was physically taken from the land, preserving RFC-0003 matter conservation). This is the immediate, individual-level expression of the knowledge; the slower, land-level expression (raising the cell's own productivity for anyone who forages there) is described in RFC-0003.
 
 ### Knowledge as Soft Technology
 

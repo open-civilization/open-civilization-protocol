@@ -15,8 +15,8 @@ from .ai import AIEngine
 
 GRID_W = 60
 GRID_H = 80
-INITIAL_POPULATION = 35  # Reduced to allow survival in harsh environment
-MAX_AGE = 65
+INITIAL_POPULATION = 55  # Seeded near total baseline carrying capacity (~5 cold + 10 temperate + 40 tropical)
+MAX_AGE = 100  # theoretical ceiling; nutritional history determines who actually approaches it
 REPRODUCTION_AGE = 13
 REPRODUCTION_ENERGY = 55
 REPRODUCTION_COST = 25
@@ -46,6 +46,13 @@ WINTER_COLD_THRESHOLD = 30
 WINTER_COLD_DMG = 8
 ACCIDENT_CHANCE = 0.003
 ACCIDENT_DMG_MIN = 8
+NUTRITION_STRESS_ENERGY = 30    # below this, chronic malnutrition debt accumulates
+NUTRITION_RECOVERY_ENERGY = 65  # above this, malnutrition debt slowly heals
+NUTRITION_DEBT_RATE = 0.5       # debt gained per tick while chronically hungry
+NUTRITION_RECOVERY_RATE = 0.15  # debt healed per tick while reliably well-fed
+NUTRITION_DEBT_CAP = 100.0      # debt ceiling
+AGE_DECLINE_ONSET = 30          # age decline can begin this early if malnourished
+AGE_DECLINE_SPAN = 60           # a well-fed resident's decline stretches across this many years
 ACCIDENT_DMG_MAX = 22
 
 TERRAIN = {
@@ -61,14 +68,88 @@ TERRAIN = {
 SEASONS = ['spring', 'summer', 'autumn', 'winter']
 
 # Climate zones: top = cold, middle = temperate, bottom = tropical
+# Non-winter multipliers set high to ensure baseline viability (40 tropical, 10 temperate, 5 cold)
+# Winter multipliers set low to create a seasonal bottleneck, but not automatic extinction —
+# knowledge softens the bottleneck, absence of knowledge means higher (not total) mortality
 CLIMATE_ZONES = {
-    'cold':      {'spring': 2.0, 'summer': 1.5, 'autumn': 0.5, 'winter': 0.005,
-                  'winter_upkeep': 5.0, 'cold_threshold': 50, 'cold_dmg': 30},
-    'temperate': {'spring': 2.0, 'summer': 1.5, 'autumn': 0.8, 'winter': 0.02,
-                  'winter_upkeep': 3.0, 'cold_threshold': 35, 'cold_dmg': 20},
-    'tropical':  {'spring': 1.5, 'summer': 1.3, 'autumn': 1.0, 'winter': 0.05,
-                  'winter_upkeep': 2.0, 'cold_threshold': 20, 'cold_dmg': 8},
+    'cold':      {'spring': 1.1, 'summer': 0.8, 'autumn': 0.35, 'winter': 0.005,
+                  'winter_upkeep': 2.8, 'cold_threshold': 50, 'cold_dmg': 14,
+                  'grazing_suitability': 1.0, 'farming_suitability': 0.1},
+    'temperate': {'spring': 1.4, 'summer': 1.0, 'autumn': 0.55, 'winter': 0.02,
+                  'winter_upkeep': 1.8, 'cold_threshold': 35, 'cold_dmg': 9,
+                  'grazing_suitability': 0.25, 'farming_suitability': 1.0},
+    'tropical':  {'spring': 1.2, 'summer': 1.0, 'autumn': 0.75, 'winter': 0.05,
+                  'winter_upkeep': 1.3, 'cold_threshold': 20, 'cold_dmg': 4,
+                  'grazing_suitability': 0.0, 'farming_suitability': 0.0},
 }
+
+# Terrain suitability for domestication (physical property of the land, like biomass_cap)
+# Cold zone pasture-grade terrain suits grazing; temperate arable terrain suits crop cultivation.
+# Tropical zone's zone-level suitability above is 0, so terrain suitability never activates there.
+TERRAIN_GRAZING = {'plains': 0.8, 'mountain': 1.0, 'desert': 0.3}
+TERRAIN_FARMING = {'plains': 1.0, 'river': 0.7, 'forest': 0.2}
+
+DOMESTICATION_DISCOVERY_CHANCE = 0.0025  # per qualifying forage tick, before suitability scaling
+# Residents forage nomadically and rarely revisit the exact same cell many ticks in a row,
+# so a single visit must contribute a meaningful amount for land improvement to be observable
+# at population scale; decay is slow so occasional return visits still net-accumulate.
+CULTIVATION_GAIN_RATE = 1.2  # cultivation gained per forage tick at full skill and suitability
+CULTIVATION_DECAY = 0.0002  # cultivation lost per tick when not actively tended
+CULTIVATION_MAX_BONUS = 7.0  # at cultivation=1.0, regrow is multiplied by (1 + this) — real farmland
+                              # vastly outproduces wild foraging per unit area
+
+# Shelter and clothing — Experiment pathway triggered by direct cold exposure (energy below
+# the zone's cold_threshold). Colder zones expose residents to this condition constantly,
+# so these technologies emerge first and fastest exactly where they matter — no zone gate
+# is needed beyond the cold-exposure condition itself, unlike domestication.
+SHELTER_DISCOVERY_CHANCE = 0.05   # per winter tick of direct cold exposure
+CLOTHING_DISCOVERY_CHANCE = 0.05  # per winter tick of direct cold exposure
+
+# ── Knowledge Transmission Channels (information-theoretic channel model) ──
+# Cross-individual and cross-generation knowledge transfer is modeled as a lossy channel.
+# Each communication technology a resident has discovered opens a channel with its own
+# base retention (fidelity). When multiple independent channels are available for the
+# same transmission event, they combine using the standard redundant-channel formula
+# from reliability engineering: a message survives if AT LEAST ONE channel gets it through,
+# so combined_retention = 1 - product(1 - channel_i) over all available channels.
+FIDELITY_IMITATION = 0.30   # floor: watching + instinctive inheritance, no verbal exchange
+FIDELITY_ORAL = 0.60        # spoken language: explicit verbal teaching
+FIDELITY_WRITTEN = 0.95     # writing: symbolic external memory, near-lossless encoding
+
+# Spoken language is a coordination technology, not a random spark between two strangers.
+# It requires a resident to already be embedded in a real, developed social group, to have
+# energy surplus (not survival mode), and for the local population to have pushed simple
+# foraging/subsistence to its practical limit (pressure near or above capacity) — i.e.
+# language emerges once primitive strategies plateau and coordination becomes the next
+# available lever, not before.
+LANGUAGE_GROUP_SIZE = 5              # resident must hold this many real bonds
+LANGUAGE_ENERGY_THRESHOLD = 65       # requires energy surplus, not survival mode
+LANGUAGE_PRESSURE_THRESHOLD = 0.7    # primitive subsistence must be near/at its ceiling
+LANGUAGE_DISCOVERY_CHANCE = 0.015    # per qualifying interaction once conditions are met
+
+# Writing requires an even further-developed group: language already exists, individual
+# knowledge complexity strains memory, energy surplus persists, and the local population
+# is pressing at or beyond capacity (civilization has run out of room to simply spread out).
+WRITING_DISCOVERY_CHANCE = 0.003     # per qualifying tick
+WRITING_COMPLEXITY_THRESHOLD = 3     # distinct knowledge domains needed to motivate a record
+WRITING_ENERGY_THRESHOLD = 55        # writing requires surplus, not survival-mode scarcity
+WRITING_GROUP_SIZE = 8               # writing serves a larger, more organized group
+WRITING_PRESSURE_THRESHOLD = 0.9     # society has grown to fill its available capacity
+
+
+def _transmission_fidelity(speaker):
+    """Best available channel fidelity for knowledge originating from `speaker`,
+    combining independent channels (writing + oral) via redundant-channel recovery."""
+    has_writing = 'writing' in speaker.known_knowledge
+    has_language = 'spoken_language' in speaker.known_knowledge
+    if has_writing and has_language:
+        return 1 - (1 - FIDELITY_WRITTEN) * (1 - FIDELITY_ORAL)  # ≈ 0.98
+    if has_writing:
+        return FIDELITY_WRITTEN
+    if has_language:
+        return FIDELITY_ORAL
+    return FIDELITY_IMITATION
+
 
 def climate_zone(y):
     third = GRID_H // 3
@@ -98,6 +179,7 @@ class Cell:
     water: bool
     climate: str = 'temperate'
     leftover: float = 0.0  # Food left behind by residents (emergent storage)
+    cultivation: float = 0.0  # Land improvement from sustained farming/grazing (0-1, decays if untended)
 
     def passable(self):
         return self.terrain != 'lake'
@@ -186,6 +268,7 @@ class Resident:
     food_total: float = 0.0
     skills: dict = field(default_factory=lambda: {'food_storage': 0.0})
     known_knowledge: dict = field(default_factory=lambda: {})  # knowledge_name -> {level, source, tick_learned}
+    malnutrition_debt: float = 0.0  # cumulative nutritional stress; drives aging independent of raw age
 
     def view_radius(self):
         return max(1, int(PERCEPTION_BASE_RADIUS * self.traits.perception))
@@ -281,28 +364,27 @@ def _spawn(rid, grid, tick, parent=None, partner=None):
         gen = parent.generation + 1
         pid = parent.id
         nrg = OFFSPRING_ENERGY
-        # Inherit knowledge from parents with some fidelity loss
+        # Inherit knowledge from parents — fidelity ceiling set by the parent's best
+        # available transmission channel (imitation/oral/written, see _transmission_fidelity)
         inherited_knowledge = {}
+        parent_fidelity = _transmission_fidelity(parent) * random.uniform(0.85, 1.0)
         for kname, kdata in parent.known_knowledge.items():
-            # Children inherit parental knowledge with some degradation
-            inherit_fidelity = random.uniform(0.7, 0.95)
             inherited_knowledge[kname] = {
-                'level': kdata['level'] * inherit_fidelity,
+                'level': kdata['level'] * parent_fidelity,
                 'source': f'inherited_from_{parent.name}',
                 'tick_learned': tick
             }
         if partner and partner.known_knowledge:
             # Also inherit from partner, taking the best version
+            partner_fidelity = _transmission_fidelity(partner) * random.uniform(0.85, 1.0)
             for kname, kdata in partner.known_knowledge.items():
                 if kname in inherited_knowledge:
                     # Take the better version
                     if kdata['level'] > inherited_knowledge[kname]['level']:
-                        inherit_fidelity = random.uniform(0.7, 0.95)
-                        inherited_knowledge[kname]['level'] = kdata['level'] * inherit_fidelity
+                        inherited_knowledge[kname]['level'] = kdata['level'] * partner_fidelity
                 else:
-                    inherit_fidelity = random.uniform(0.7, 0.95)
                     inherited_knowledge[kname] = {
-                        'level': kdata['level'] * inherit_fidelity,
+                        'level': kdata['level'] * partner_fidelity,
                         'source': f'inherited_from_{partner.name}',
                         'tick_learned': tick
                     }
@@ -319,7 +401,7 @@ def _spawn(rid, grid, tick, parent=None, partner=None):
     child = Resident(rid, _rand_name(), x, y, 0, nrg, MAX_HEALTH, traits,
                     True, pid, gen, [], {}, tick)
     child.known_knowledge = inherited_knowledge
-    child.skills = {'food_storage': inherited_knowledge.get('food_storage', {}).get('level', 0) * 100}
+    child.skills = {kname: kdata['level'] * 100 for kname, kdata in inherited_knowledge.items()}
     return child
 
 
@@ -506,12 +588,61 @@ def _do_forage(r, grid, tick, residents=None):
     if cell.biomass <= 0 and cell.leftover <= 0:
         return None
 
+    zone_cfg = CLIMATE_ZONES[cell.climate]
+    discovery_msg = None
+
+    # Domestication — Experiment pathway (RFC-0006): repeated work on suitable land
+    # occasionally yields the insight that planting/herding beats pure extraction.
+    # Suitability is a physical fact of terrain x zone, not a scripted unlock.
+    farm_suit = TERRAIN_FARMING.get(cell.terrain, 0) * zone_cfg['farming_suitability']
+    graze_suit = TERRAIN_GRAZING.get(cell.terrain, 0) * zone_cfg['grazing_suitability']
+
+    if farm_suit > 0 and 'crop_cultivation' not in r.known_knowledge:
+        if random.random() < DOMESTICATION_DISCOVERY_CHANCE * farm_suit:
+            r.known_knowledge['crop_cultivation'] = {
+                'level': 0.15, 'source': 'experimented_with_planting', 'tick_learned': tick
+            }
+            r.skills['crop_cultivation'] = 15.0
+            discovery_msg = f'{r.name} discovered crop cultivation'
+    if graze_suit > 0 and 'animal_husbandry' not in r.known_knowledge:
+        if random.random() < DOMESTICATION_DISCOVERY_CHANCE * graze_suit:
+            r.known_knowledge['animal_husbandry'] = {
+                'level': 0.15, 'source': 'experimented_with_herding', 'tick_learned': tick
+            }
+            r.skills['animal_husbandry'] = 15.0
+            discovery_msg = f'{r.name} discovered animal husbandry'
+
+    # Tending the land — knowledge-holders raise the cell's cultivation level through
+    # sustained work; skill itself deepens gradually through practice (learning by doing)
+    if farm_suit > 0 and 'crop_cultivation' in r.known_knowledge:
+        skill = r.skills.get('crop_cultivation', 0) / 100.0
+        cell.cultivation = min(1.0, cell.cultivation + CULTIVATION_GAIN_RATE * skill * farm_suit)
+        if random.random() < 0.03:
+            current = r.known_knowledge['crop_cultivation']['level']
+            r.known_knowledge['crop_cultivation']['level'] = min(1.0, current + 0.02 * (1.0 - current))
+            r.skills['crop_cultivation'] = r.known_knowledge['crop_cultivation']['level'] * 100
+    if graze_suit > 0 and 'animal_husbandry' in r.known_knowledge:
+        skill = r.skills.get('animal_husbandry', 0) / 100.0
+        cell.cultivation = min(1.0, cell.cultivation + CULTIVATION_GAIN_RATE * skill * graze_suit)
+        if random.random() < 0.03:
+            current = r.known_knowledge['animal_husbandry']['level']
+            r.known_knowledge['animal_husbandry']['level'] = min(1.0, current + 0.02 * (1.0 - current))
+            r.skills['animal_husbandry'] = r.known_knowledge['animal_husbandry']['level'] * 100
+
     # Harvest from biomass
     if cell.biomass > 0:
         harvest = min(cell.biomass, 15 * r.traits.strength) * random.uniform(0.5, 1.0)
         effort = 0.5 / r.traits.endurance
         cell.biomass -= harvest
-        gain = harvest * 0.8
+
+        # Domestication conversion efficiency — better technique extracts more usable energy
+        # from the same harvested biomass (does not exceed what was actually taken from the land)
+        conversion = 0.8
+        if farm_suit > 0 and 'crop_cultivation' in r.known_knowledge:
+            conversion += r.skills.get('crop_cultivation', 0) / 100.0 * farm_suit * 0.5
+        if graze_suit > 0 and 'animal_husbandry' in r.known_knowledge:
+            conversion += r.skills.get('animal_husbandry', 0) / 100.0 * graze_suit * 0.5
+        gain = harvest * conversion
         r.energy = min(MAX_ENERGY, r.energy + gain - effort)
         r.food_total += harvest
 
@@ -536,6 +667,8 @@ def _do_forage(r, grid, tick, residents=None):
             loser.health -= dmg
             return f'{r.name} fought {rival.name} over food — {loser.name} injured (-{dmg:.0f}hp)'
 
+    if discovery_msg:
+        return discovery_msg
     if cell.biomass > 12 or (cell.leftover > 0 and r.energy < MAX_ENERGY):
         return f'{r.name} gathered food (leftover: {cell.leftover:.0f})'
     return None
@@ -554,7 +687,7 @@ def _do_scavenge(r, grid):
     return f'{r.name} scavenged {scavenged:.0f} food from leftovers'
 
 
-def _do_interact(r, target_id, residents, tick):
+def _do_interact(r, target_id, residents, tick, pressure=0.0):
     target = None
     for res in residents:
         if res.id == target_id and res.alive:
@@ -594,7 +727,25 @@ def _do_interact(r, target_id, residents, tick):
             target.memory.sort(key=lambda m: m.tick, reverse=True)
             target.memory = target.memory[:MEMORY_CAPACITY]
 
-    # Knowledge transmission (oral tradition)
+    # Spoken language discovery — Experiment pathway, gated by group development rather
+    # than a single bonded pair: a resident must already be embedded in a real social
+    # group (enough bonds), have energy surplus (not survival mode), and the local
+    # population must have pushed simple subsistence near its practical ceiling. Language
+    # is what a developed group reaches for once foraging alone stops yielding more.
+    if ('spoken_language' not in r.known_knowledge
+            and len(r.bonds) >= LANGUAGE_GROUP_SIZE
+            and r.energy > LANGUAGE_ENERGY_THRESHOLD
+            and pressure > LANGUAGE_PRESSURE_THRESHOLD):
+        if random.random() < LANGUAGE_DISCOVERY_CHANCE:
+            r.known_knowledge['spoken_language'] = {
+                'level': 0.3, 'source': f'coined_within_the_group_with_{target.name}', 'tick_learned': tick
+            }
+            r.skills['spoken_language'] = 30.0
+            event_msg = f'{r.name} coined shared words with {target.name} — spoken language emerges'
+
+    # Knowledge transmission — fidelity ceiling set by the speaker's best available
+    # channel (imitation/oral/written); actual fidelity also scales with how well the
+    # speaker themselves knows the specific knowledge being passed on.
     # Probability increases with: sociability + age (longer survival = more credibility)
     age_bonus = min(0.3, r.age / 100.0)  # Older people transmit better
     transmission_prob = (r.traits.sociability * 0.4) + age_bonus
@@ -603,12 +754,13 @@ def _do_interact(r, target_id, residents, tick):
         # Pick a random knowledge the speaker has
         knowledge_name = random.choice(list(r.known_knowledge.keys()))
         speaker_knowledge = r.known_knowledge[knowledge_name]
+        channel_fidelity = _transmission_fidelity(r)
 
         # Listener learns with distortion/loss proportional to quality gap
         if knowledge_name not in target.known_knowledge:
-            # First time hearing about this knowledge
-            # Better knowledge (higher level) = better fidelity
-            fidelity = random.uniform(0.5, 0.9) * (0.5 + speaker_knowledge['level'] * 0.5)
+            # First time hearing about this knowledge — capped by the speaker's channel,
+            # scaled down if the speaker's own grasp of it is still shallow
+            fidelity = channel_fidelity * (0.5 + speaker_knowledge['level'] * 0.5)
             learned_level = speaker_knowledge['level'] * fidelity
             target.known_knowledge[knowledge_name] = {
                 'level': learned_level,
@@ -616,15 +768,23 @@ def _do_interact(r, target_id, residents, tick):
                 'tick_learned': tick
             }
             target.skills[knowledge_name] = learned_level * 100
-            event_msg = f'{r.name} taught {target.name} about {knowledge_name}'
+            if not event_msg:
+                event_msg = f'{r.name} taught {target.name} about {knowledge_name}'
         else:
             # Reinforce existing knowledge (only if speaker knows better)
             existing_level = target.known_knowledge[knowledge_name]['level']
             if speaker_knowledge['level'] > existing_level:
-                fidelity = random.uniform(0.6, 0.95)
-                improvement = (speaker_knowledge['level'] - existing_level) * fidelity * 0.2
+                improvement = (speaker_knowledge['level'] - existing_level) * channel_fidelity * 0.2
                 target.known_knowledge[knowledge_name]['level'] = min(1.0, existing_level + improvement)
                 target.skills[knowledge_name] = target.known_knowledge[knowledge_name]['level'] * 100
+
+        # Learning by doing: successfully communicating deepens the speaker's own
+        # language/writing fluency, same reinforcement pattern as other practiced skills
+        for meta_skill in ('spoken_language', 'writing'):
+            if meta_skill in r.known_knowledge and random.random() < 0.04:
+                current = r.known_knowledge[meta_skill]['level']
+                r.known_knowledge[meta_skill]['level'] = min(1.0, current + 0.03 * (1.0 - current))
+                r.skills[meta_skill] = r.known_knowledge[meta_skill]['level'] * 100
 
     return event_msg
 
@@ -718,24 +878,30 @@ class Simulation:
 
         season = SEASONS[(tick // SEASON_LENGTH) % 4]
 
-        # Environment: biomass regrowth (zone-dependent season multiplier)
+        # Environment: biomass regrowth (zone-dependent season multiplier, cultivated land regrows faster)
         for row in self.grid:
             for c in row:
                 if c.biomass < c.biomass_cap:
                     m = c.season_mult(season)
-                    c.biomass = min(c.biomass_cap, c.biomass + TERRAIN[c.terrain]['regrow'] * m)
+                    cultivation_bonus = 1.0 + c.cultivation * CULTIVATION_MAX_BONUS
+                    c.biomass = min(c.biomass_cap, c.biomass + TERRAIN[c.terrain]['regrow'] * m * cultivation_bonus)
+                # Untended land slowly reverts to wild (Law 10 Entropy)
+                if c.cultivation > 0:
+                    c.cultivation = max(0.0, c.cultivation - CULTIVATION_DECAY)
 
         living = [r for r in self.residents if r.alive]
         random.shuffle(living)
 
         # Carrying capacity based on annual average food production per zone
+        # (cultivated land raises the effective ceiling, same as it raises regrowth)
         total_regrow = 0
         for row in self.grid:
             for c in row:
                 if c.passable():
                     zone_cfg = CLIMATE_ZONES[c.climate]
                     avg_m = sum(zone_cfg[s] for s in SEASONS) / 4
-                    total_regrow += TERRAIN[c.terrain]['regrow'] * avg_m
+                    cultivation_bonus = 1.0 + c.cultivation * CULTIVATION_MAX_BONUS
+                    total_regrow += TERRAIN[c.terrain]['regrow'] * avg_m * cultivation_bonus
         carrying_cap = max(10, total_regrow / (BASELINE_ENERGY_COST * 8.0))
         pop = len(living)
         self._pressure = pop / max(1, carrying_cap)
@@ -755,11 +921,18 @@ class Simulation:
                 continue
             r.age += 1
 
-            # Upkeep — zone-dependent winter multiplier
+            # Upkeep — zone-dependent winter multiplier, reduced by food storage and clothing
             cost = r.upkeep()
             zone_cfg = CLIMATE_ZONES[climate_zone(r.y)]
             if season == 'winter':
-                cost *= zone_cfg['winter_upkeep']
+                storage_skill = r.skills.get('food_storage', 0) / 100.0
+                clothing_skill = r.skills.get('clothing_making', 0) / 100.0
+                # Stored food and insulating clothing both soften winter upkeep; independent
+                # reductions combine multiplicatively (neither alone reaches the other's ceiling)
+                food_reduction = 1.0 - storage_skill * 0.3
+                clothing_reduction = 1.0 - clothing_skill * 0.35
+                effective_upkeep = zone_cfg['winter_upkeep'] * food_reduction * clothing_reduction
+                cost *= effective_upkeep
             r.energy -= cost
 
             # Population pressure multiplier — mild below capacity, brutal above
@@ -775,53 +948,94 @@ class Simulation:
                 malnutrition = 5.0 * (self._pressure - 1.0) ** 2
                 r.health -= malnutrition
 
-            # Winter exposure — zone-dependent cold damage
+            # Winter exposure — zone-dependent cold damage, blunted by shelter
             cold_thr = zone_cfg['cold_threshold']
             cold_dmg = zone_cfg['cold_dmg']
             if season == 'winter' and cold_thr > 0 and r.energy < cold_thr:
-                r.health -= cold_dmg * (1.0 - r.energy / cold_thr)
+                shelter_skill = r.skills.get('shelter_building', 0) / 100.0
+                effective_cold_dmg = cold_dmg * (1.0 - shelter_skill * 0.6)
+                r.health -= effective_cold_dmg * (1.0 - r.energy / cold_thr)
 
-            # Winter survival — directly linked to food storage knowledge
+            # Winter: near-starvation drives knowledge discovery and reinforcement
             if season == 'winter':
-                storage_skill = r.skills.get('food_storage', 0) / 100.0
+                # Starvation discovery: residents who nearly starve (energy < 10) may learn
+                # from painful experience, only if they don't already know
+                if r.energy < 10 and 'food_storage' not in r.known_knowledge:
+                    if random.random() < 0.08:  # 8% chance per winter tick of near-starvation
+                        r.known_knowledge['food_storage'] = {
+                            'level': 0.2,
+                            'source': 'desperate_winter_experience',
+                            'tick_learned': tick
+                        }
+                        r.skills['food_storage'] = 20.0
+                        evts.append({'tick': tick, 'type': 'discovery',
+                                     'text': f'{r.name} learned food storage through winter hardship',
+                                     'x': r.x, 'y': r.y})
 
-                # Winter survival rate based on knowledge level
-                # No knowledge (0): 30% survival chance (70% death)
-                # Knowledge (0.5): 55% survival chance
-                # Expert (1.0): 80%+ survival chance
-                base_survival = 0.3 + (storage_skill * 0.5)
+                # Knowledge reinforcement: experienced residents with knowledge may improve
+                # through successful winter survival
+                elif r.energy > 15 and 'food_storage' in r.known_knowledge and random.random() < 0.06:
+                    current = r.known_knowledge['food_storage']['level']
+                    improvement = 0.04 + (0.04 * (1.0 - current))
+                    r.known_knowledge['food_storage']['level'] = min(1.0, current + improvement)
+                    r.skills['food_storage'] = r.known_knowledge['food_storage']['level'] * 100
 
-                # Knowledge-dependent starvation
-                if random.random() > base_survival:
-                    # Winter kills this resident
-                    winter_damage = 25 + (10 * (1.0 - storage_skill))  # Better knowledge = less damage
-                    r.health -= winter_damage
+                # Shelter discovery — Experiment pathway: repeated direct cold-exposure damage
+                # (energy below the zone's cold threshold) motivates building windbreaks/shelter.
+                # Colder zones expose residents to this condition far more often, so shelter
+                # naturally emerges first and fastest where it matters most.
+                if (r.energy < cold_thr and 'shelter_building' not in r.known_knowledge
+                        and random.random() < SHELTER_DISCOVERY_CHANCE):
+                    r.known_knowledge['shelter_building'] = {
+                        'level': 0.2, 'source': 'cold_exposure_experience', 'tick_learned': tick
+                    }
+                    r.skills['shelter_building'] = 20.0
+                    evts.append({'tick': tick, 'type': 'discovery',
+                                 'text': f'{r.name} learned to build shelter against the cold',
+                                 'x': r.x, 'y': r.y})
+                elif (r.energy >= cold_thr and 'shelter_building' in r.known_knowledge
+                        and random.random() < 0.05):
+                    current = r.known_knowledge['shelter_building']['level']
+                    r.known_knowledge['shelter_building']['level'] = min(1.0, current + 0.04 * (1.0 - current))
+                    r.skills['shelter_building'] = r.known_knowledge['shelter_building']['level'] * 100
 
-                    # CRITICAL: Chance to discover knowledge under extreme pressure (bootstrap mechanism)
-                    # Without this, species dies out when all are ignorant
-                    if r.health > 0:
-                        # Discovery happens more easily in early years (generations 0-10)
-                        early_bonus = max(0, 1.0 - (self.total_deaths / 10000.0))  # Bonus in early years
+                # Clothing discovery — same Experiment pathway, independent invention from
+                # shelter (a resident may find one, the other, or both over time)
+                if (r.energy < cold_thr and 'clothing_making' not in r.known_knowledge
+                        and random.random() < CLOTHING_DISCOVERY_CHANCE):
+                    r.known_knowledge['clothing_making'] = {
+                        'level': 0.2, 'source': 'cold_exposure_experience', 'tick_learned': tick
+                    }
+                    r.skills['clothing_making'] = 20.0
+                    evts.append({'tick': tick, 'type': 'discovery',
+                                 'text': f'{r.name} learned to make warm clothing',
+                                 'x': r.x, 'y': r.y})
+                elif (r.energy >= cold_thr and 'clothing_making' in r.known_knowledge
+                        and random.random() < 0.05):
+                    current = r.known_knowledge['clothing_making']['level']
+                    r.known_knowledge['clothing_making']['level'] = min(1.0, current + 0.04 * (1.0 - current))
+                    r.skills['clothing_making'] = r.known_knowledge['clothing_making']['level'] * 100
 
-                        if 'food_storage' not in r.known_knowledge:
-                            # Desperate learning through starvation
-                            # Probability: 15% base + 10% bonus in early years = up to 25%
-                            discovery_prob = 0.15 + (0.10 * early_bonus)
-                            if random.random() < discovery_prob:
-                                r.known_knowledge['food_storage'] = {
-                                    'level': 0.15,
-                                    'source': 'desperate_experience',
-                                    'tick_learned': tick
-                                }
-                                r.skills['food_storage'] = 15.0
-                                evts.append({'tick': tick, 'type': 'discovery',
-                                             'text': f'{r.name} learned food storage from starvation experience',
-                                             'x': r.x, 'y': r.y})
-                        elif random.random() < 0.08:
-                            # Reinforce knowledge through survival
-                            current = r.known_knowledge['food_storage']['level']
-                            r.known_knowledge['food_storage']['level'] = min(1.0, current + 0.08)
-                            r.skills['food_storage'] = r.known_knowledge['food_storage']['level'] * 100
+            # Writing discovery — Experiment pathway: a resident who already has spoken
+            # language, belongs to a larger organized group, holds enough distinct
+            # knowledge domains to strain memory, has energy surplus, and whose society
+            # is pressing at or beyond its subsistence ceiling occasionally devises a
+            # symbolic record to externalize what oral tradition alone keeps losing.
+            if ('spoken_language' in r.known_knowledge and 'writing' not in r.known_knowledge
+                    and len(r.known_knowledge) >= WRITING_COMPLEXITY_THRESHOLD
+                    and len(r.bonds) >= WRITING_GROUP_SIZE
+                    and r.energy > WRITING_ENERGY_THRESHOLD
+                    and self._pressure > WRITING_PRESSURE_THRESHOLD):
+                if random.random() < WRITING_DISCOVERY_CHANCE:
+                    r.known_knowledge['writing'] = {
+                        'level': 0.25,
+                        'source': 'devised_symbolic_record',
+                        'tick_learned': tick
+                    }
+                    r.skills['writing'] = 25.0
+                    evts.append({'tick': tick, 'type': 'discovery',
+                                 'text': f'{r.name} devised a system of writing',
+                                 'x': r.x, 'y': r.y})
 
             # Disease — base chance + crowding + pressure
             crowd = cell_pop.get((r.x, r.y), 1) - 1
@@ -845,9 +1059,24 @@ class Simulation:
                 dmg = random.uniform(ACCIDENT_DMG_MIN, ACCIDENT_DMG_MAX)
                 r.health -= dmg
 
-            # Age decline — starts around age 35
-            if r.age > 35:
-                p = (r.age - 35) / 30 * 0.10
+            # Nutritional history — irregular or insufficient food intake accumulates as
+            # long-term stress, independent of momentary starvation damage above. A resident
+            # who is chronically hungry (energy below threshold) builds up debt; one who is
+            # reliably well-fed slowly recovers from past deficits. This is what makes
+            # "feast or famine" foraging shorten lifespans even without acute starvation deaths.
+            if r.energy < NUTRITION_STRESS_ENERGY:
+                r.malnutrition_debt = min(NUTRITION_DEBT_CAP, r.malnutrition_debt + NUTRITION_DEBT_RATE)
+            elif r.energy > NUTRITION_RECOVERY_ENERGY:
+                r.malnutrition_debt = max(0.0, r.malnutrition_debt - NUTRITION_RECOVERY_RATE)
+
+            # Age decline — onset and severity depend on nutritional history, not just raw
+            # age. A well-fed resident's decline curve stretches toward MAX_AGE; a chronically
+            # malnourished one (e.g. a pre-agriculture forager living hand-to-mouth) starts
+            # declining sharply in their 30s regardless of chronological age remaining.
+            if r.age > AGE_DECLINE_ONSET:
+                base_progress = (r.age - AGE_DECLINE_ONSET) / AGE_DECLINE_SPAN
+                nutrition_penalty = (r.malnutrition_debt / NUTRITION_DEBT_CAP) * 0.8
+                p = min(0.5, (base_progress + nutrition_penalty) * 0.10)
                 if random.random() < p:
                     r.health -= 5
 
@@ -892,7 +1121,7 @@ class Simulation:
             elif action == 'rest':
                 r.health = min(MAX_HEALTH, r.health + 2.5 * r.traits.endurance)
             elif action == 'interact':
-                msg = _do_interact(r, tid, self.residents, tick)
+                msg = _do_interact(r, tid, self.residents, tick, self._pressure)
             elif action == 'raid':
                 msg = _do_raid(r, tid, self.residents, tick)
             elif action == 'scavenge':
@@ -901,7 +1130,8 @@ class Simulation:
                 msg, self._next_id = _do_reproduce(r, tid, self.residents, self.grid, tick, self._next_id)
 
             if msg:
-                evts.append({'tick': tick, 'type': action, 'text': msg, 'x': r.x, 'y': r.y})
+                evt_type = 'discovery' if msg.startswith(f'{r.name} discovered') else action
+                evts.append({'tick': tick, 'type': evt_type, 'text': msg, 'x': r.x, 'y': r.y})
 
             # Update spatial memory
             cell = self.grid[r.y][r.x]
@@ -945,6 +1175,22 @@ class Simulation:
         if storage_holders > 0:
             avg_storage_skill = sum(r.skills.get('food_storage', 0) for r in living if 'food_storage' in r.known_knowledge) / storage_holders
 
+        farmer_holders = sum(1 for r in living if 'crop_cultivation' in r.known_knowledge)
+        herder_holders = sum(1 for r in living if 'animal_husbandry' in r.known_knowledge)
+        avg_farm_skill = 0.0
+        if farmer_holders > 0:
+            avg_farm_skill = sum(r.skills.get('crop_cultivation', 0) for r in living if 'crop_cultivation' in r.known_knowledge) / farmer_holders
+        avg_herd_skill = 0.0
+        if herder_holders > 0:
+            avg_herd_skill = sum(r.skills.get('animal_husbandry', 0) for r in living if 'animal_husbandry' in r.known_knowledge) / herder_holders
+
+        cultivated_cells = sum(1 for row in self.grid for c in row if c.cultivation > 0.05)
+
+        language_holders = sum(1 for r in living if 'spoken_language' in r.known_knowledge)
+        writing_holders = sum(1 for r in living if 'writing' in r.known_knowledge)
+        shelter_holders = sum(1 for r in living if 'shelter_building' in r.known_knowledge)
+        clothing_holders = sum(1 for r in living if 'clothing_making' in r.known_knowledge)
+
         metrics = {
             'tick': tick,
             'season': season,
@@ -965,6 +1211,15 @@ class Simulation:
             'knowledge_holders': storage_holders,  # People who know food storage
             'avg_storage_skill': round(avg_storage_skill, 1),
             'knowledge_ratio': round(storage_holders / max(1, n), 3),
+            'farmer_holders': farmer_holders,
+            'avg_farm_skill': round(avg_farm_skill, 1),
+            'herder_holders': herder_holders,
+            'avg_herd_skill': round(avg_herd_skill, 1),
+            'cultivated_cells': cultivated_cells,
+            'language_holders': language_holders,
+            'writing_holders': writing_holders,
+            'shelter_holders': shelter_holders,
+            'clothing_holders': clothing_holders,
         }
         self.metrics_history.append(metrics)
         if len(self.metrics_history) > 5000:
@@ -983,11 +1238,13 @@ class Simulation:
             terrain = []
             biomass = []
             leftover = []
+            cultivation = []
             for row in self.grid:
                 for c in row:
                     terrain.append(c.terrain)
                     biomass.append(round(c.biomass, 1))
                     leftover.append(round(c.leftover, 1))
+                    cultivation.append(round(c.cultivation, 3))
 
             res_data = [{
                 'id': r.id, 'name': r.name, 'x': r.x, 'y': r.y,
@@ -1009,7 +1266,7 @@ class Simulation:
             zone_boundary = GRID_H // 3
             return {
                 'gw': GRID_W, 'gh': GRID_H,
-                'terrain': terrain, 'biomass': biomass, 'leftover': leftover,
+                'terrain': terrain, 'biomass': biomass, 'leftover': leftover, 'cultivation': cultivation,
                 'residents': res_data,
                 'metrics': m,
                 'history': self.metrics_history[-300:],
