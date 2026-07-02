@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OCP — Open Civilization Protocol</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0d1117;color:#c9d1d9;font-family:'SF Mono',Menlo,Consolas,monospace;font-size:13px}
+#app{display:grid;grid-template-columns:1fr 320px;grid-template-rows:auto 1fr auto;height:100vh;gap:0}
+header{grid-column:1/-1;padding:10px 16px;background:#161b22;border-bottom:1px solid #30363d;display:flex;align-items:center;gap:16px}
+header h1{font-size:15px;color:#58a6ff;font-weight:600;letter-spacing:.5px}
+header .controls{display:flex;gap:8px;align-items:center}
+header button{background:#21262d;border:1px solid #30363d;color:#c9d1d9;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:12px;font-family:inherit}
+header button:hover{background:#30363d}
+header button.active{background:#1f6feb;border-color:#1f6feb;color:#fff}
+header .speed{display:flex;align-items:center;gap:4px;color:#8b949e}
+header input[type=range]{width:80px;accent-color:#1f6feb}
+header .seed{color:#8b949e;margin-left:auto;font-size:11px}
+header .ai-badge{font-size:10px;padding:2px 6px;border-radius:3px;background:#21262d;border:1px solid #30363d;color:#8b949e}
+header .ai-badge.on{background:#1a4b2e;border-color:#238636;color:#3fb950}
+#map-wrap{position:relative;display:flex;align-items:center;justify-content:center;background:#0d1117;overflow:hidden}
+canvas{image-rendering:pixelated}
+#sidebar{background:#161b22;border-left:1px solid #30363d;overflow-y:auto;padding:12px}
+#sidebar h2{font-size:12px;color:#8b949e;text-transform:uppercase;letter-spacing:1px;margin:12px 0 6px;border-bottom:1px solid #21262d;padding-bottom:4px}
+#sidebar h2:first-child{margin-top:0}
+.stat{display:flex;justify-content:space-between;padding:2px 0}
+.stat .label{color:#8b949e}
+.stat .val{color:#e6edf3;font-weight:600}
+.stat .val.green{color:#3fb950}
+.stat .val.yellow{color:#d29922}
+.stat .val.red{color:#f85149}
+#chart-wrap{height:100px;margin:8px 0;position:relative}
+#chart{width:100%;height:100%;background:#0d1117;border-radius:4px;border:1px solid #21262d}
+#events-wrap{grid-column:1/-1;background:#161b22;border-top:1px solid #30363d;height:140px;overflow-y:auto;padding:8px 16px}
+#events-wrap h2{font-size:12px;color:#8b949e;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px}
+.evt{padding:1px 0;color:#8b949e;font-size:11px}
+.evt .tick{color:#484f58;margin-right:6px}
+.evt.death{color:#f85149}
+.evt.birth,.evt.reproduce{color:#3fb950}
+.evt.sharing{color:#d29922}
+.evt.meeting{color:#58a6ff}
+.evt.ai{color:#bc8cff}
+.evt.disease{color:#ff7b72}
+.evt.move{color:#ffa657}
+.evt.forage{color:#d29922}
+.evt.raid{color:#ff4500}
+#tooltip{position:absolute;background:#1c2128;border:1px solid #30363d;padding:8px 10px;border-radius:6px;font-size:11px;pointer-events:none;display:none;z-index:10;max-width:240px;line-height:1.5}
+#resident-panel{display:none}
+#resident-panel.show{display:block}
+#resident-panel .name{font-size:14px;color:#58a6ff;font-weight:600;margin-bottom:4px}
+.bar-wrap{height:6px;background:#21262d;border-radius:3px;margin:2px 0 4px}
+.bar{height:100%;border-radius:3px;transition:width .3s}
+.bar.energy{background:#3fb950}
+.bar.health{background:#58a6ff}
+
+/* Settings Modal */
+#settings-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;align-items:center;justify-content:center}
+#settings-overlay.show{display:flex}
+#settings-modal{background:#161b22;border:1px solid #30363d;border-radius:10px;width:540px;max-height:85vh;overflow-y:auto;padding:24px}
+#settings-modal h2{font-size:16px;color:#e6edf3;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between}
+#settings-modal h2 button{background:none;border:none;color:#8b949e;font-size:18px;cursor:pointer;padding:0 4px}
+#settings-modal h2 button:hover{color:#e6edf3}
+#settings-modal h3{font-size:12px;color:#8b949e;text-transform:uppercase;letter-spacing:1px;margin:16px 0 8px;border-bottom:1px solid #21262d;padding-bottom:4px}
+.setting-row{display:flex;align-items:center;justify-content:space-between;padding:6px 0}
+.setting-row label{color:#c9d1d9;font-size:12px}
+.toggle{position:relative;width:36px;height:20px;cursor:pointer}
+.toggle input{opacity:0;width:0;height:0}
+.toggle .slider{position:absolute;inset:0;background:#21262d;border-radius:10px;border:1px solid #30363d;transition:.2s}
+.toggle .slider:before{content:'';position:absolute;width:14px;height:14px;left:2px;bottom:2px;background:#8b949e;border-radius:50%;transition:.2s}
+.toggle input:checked + .slider{background:#238636;border-color:#238636}
+.toggle input:checked + .slider:before{transform:translateX(16px);background:#fff}
+.provider-tabs{display:flex;gap:4px;margin:8px 0}
+.provider-tab{padding:4px 10px;background:#21262d;border:1px solid #30363d;border-radius:4px;cursor:pointer;color:#8b949e;font-size:11px;font-family:inherit}
+.provider-tab.active{background:#1f6feb;border-color:#1f6feb;color:#fff}
+.key-input{width:100%;background:#0d1117;border:1px solid #30363d;border-radius:4px;padding:6px 8px;color:#c9d1d9;font-family:inherit;font-size:12px;margin:4px 0}
+.key-input::placeholder{color:#484f58}
+.key-input:focus{outline:none;border-color:#1f6feb}
+.model-select{width:100%;background:#0d1117;border:1px solid #30363d;border-radius:4px;padding:6px 8px;color:#c9d1d9;font-family:inherit;font-size:12px;margin:4px 0;cursor:pointer}
+.model-select:focus{outline:none;border-color:#1f6feb}
+.model-select option{background:#0d1117;color:#c9d1d9}
+.key-status{font-size:10px;padding:1px 6px;border-radius:3px;margin-left:6px}
+.key-status.set{background:#1a4b2e;color:#3fb950}
+.key-status.unset{background:#3d1f20;color:#f85149}
+.budget-row{display:flex;align-items:center;gap:8px;padding:6px 0}
+.budget-row label{color:#c9d1d9;font-size:12px;min-width:120px}
+.budget-row input[type=range]{flex:1;accent-color:#1f6feb}
+.budget-row .bval{color:#e6edf3;font-weight:600;font-size:12px;min-width:20px;text-align:right}
+.save-btn{width:100%;padding:8px;background:#238636;border:none;border-radius:6px;color:#fff;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;margin-top:16px}
+.save-btn:hover{background:#2ea043}
+.save-msg{text-align:center;color:#3fb950;font-size:11px;margin-top:6px;height:16px}
+.ai-stats{margin-top:8px}
+.ai-stats .stat{padding:2px 0}
+.ai-recent{max-height:100px;overflow-y:auto;margin-top:4px}
+.ai-recent-item{font-size:10px;color:#8b949e;padding:2px 0;border-bottom:1px solid #21262d}
+.ai-recent-item .rname{color:#bc8cff}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>OCP</h1>
+    <div class="controls">
+      <button id="btn-play" onclick="togglePlay()">Play</button>
+      <button onclick="doTick()">Step</button>
+      <button onclick="doReset()">Reset</button>
+      <div class="speed">
+        <span>Speed</span>
+        <input type="range" id="speed" min="1" max="30" value="5" oninput="setSpeed(this.value)">
+        <span id="speed-val">5</span>
+      </div>
+    </div>
+    <span class="ai-badge" id="ai-badge" onclick="openSettings()">AI OFF</span>
+    <div class="seed" id="seed-info"></div>
+  </header>
+  <div id="map-wrap">
+    <canvas id="grid"></canvas>
+    <div id="tooltip"></div>
+  </div>
+  <div id="sidebar">
+    <h2>World</h2>
+    <div class="stat"><span class="label">Tick</span><span class="val" id="s-tick">0</span></div>
+    <div class="stat"><span class="label">Year</span><span class="val" id="s-year">0</span></div>
+    <div class="stat"><span class="label">Season</span><span class="val" id="s-season">—</span></div>
+    <h2>Population</h2>
+    <div class="stat"><span class="label">Alive</span><span class="val" id="s-pop">0</span></div>
+    <div class="stat"><span class="label">寒带 Cold</span><span class="val" id="s-pop-cold" style="color:#7eb8da">0</span></div>
+    <div class="stat"><span class="label">温带 Temp</span><span class="val" id="s-pop-temp" style="color:#c9d1d9">0</span></div>
+    <div class="stat"><span class="label">热带 Trop</span><span class="val" id="s-pop-trop" style="color:#f0a050">0</span></div>
+    <div class="stat"><span class="label">Births / Deaths</span><span class="val" id="s-bd">0 / 0</span></div>
+    <div class="stat"><span class="label">Max Gen</span><span class="val" id="s-gen">0</span></div>
+    <h2>Vitals</h2>
+    <div class="stat"><span class="label">Avg Energy</span><span class="val" id="s-energy">0</span></div>
+    <div class="stat"><span class="label">Avg Health</span><span class="val" id="s-health">0</span></div>
+    <div class="stat"><span class="label">Avg Age</span><span class="val" id="s-age">0</span></div>
+    <h2>Emergence</h2>
+    <div class="stat"><span class="label">Gini (energy)</span><span class="val" id="s-gini">0</span></div>
+    <div class="stat"><span class="label">Clustering</span><span class="val" id="s-cluster">0</span></div>
+    <div class="stat"><span class="label">Carrying Cap</span><span class="val" id="s-cap">—</span></div>
+    <div class="stat"><span class="label">Pressure</span><span class="val" id="s-pressure">—</span></div>
+    <h2>AI Slow Tier</h2>
+    <div class="stat"><span class="label">LLM Calls</span><span class="val" id="s-ai-calls">0</span></div>
+    <div class="stat"><span class="label">Pending</span><span class="val" id="s-ai-pending">0</span></div>
+    <div class="stat"><span class="label">Errors</span><span class="val" id="s-ai-errors">0</span></div>
+    <h2>Population Chart</h2>
+    <div id="chart-wrap"><canvas id="chart"></canvas></div>
+    <div id="resident-panel">
+      <h2>Resident</h2>
+      <div class="name" id="rp-name"></div>
+      <div class="stat"><span class="label">Energy</span><span class="val" id="rp-energy"></span></div>
+      <div class="bar-wrap"><div class="bar energy" id="rp-ebar"></div></div>
+      <div class="stat"><span class="label">Health</span><span class="val" id="rp-health"></span></div>
+      <div class="bar-wrap"><div class="bar health" id="rp-hbar"></div></div>
+      <div class="stat"><span class="label">Age</span><span class="val" id="rp-age"></span></div>
+      <div class="stat"><span class="label">Generation</span><span class="val" id="rp-gen"></span></div>
+      <div class="stat"><span class="label">Bonds</span><span class="val" id="rp-bonds"></span></div>
+      <div class="stat"><span class="label">Children</span><span class="val" id="rp-children"></span></div>
+      <div class="stat"><span class="label">Traits</span><span class="val" id="rp-traits" style="font-size:10px"></span></div>
+    </div>
+  </div>
+  <div id="events-wrap">
+    <h2>Events</h2>
+    <div id="events"></div>
+  </div>
+</div>
+
+<!-- Settings Modal -->
+<div id="settings-overlay" onclick="if(event.target===this)closeSettings()">
+  <div id="settings-modal">
+    <h2>AI Settings <button onclick="closeSettings()">&times;</button></h2>
+
+    <div class="setting-row">
+      <label>Enable AI Slow Tier</label>
+      <label class="toggle">
+        <input type="checkbox" id="set-enabled">
+        <span class="slider"></span>
+      </label>
+    </div>
+
+    <h3>Provider</h3>
+    <div class="provider-tabs" id="provider-tabs"></div>
+
+    <div id="provider-config">
+      <div style="margin:8px 0">
+        <label style="font-size:11px;color:#8b949e">API Key <span class="key-status" id="key-status">unset</span></label>
+        <input type="password" class="key-input" id="set-key" placeholder="Paste your API key">
+      </div>
+      <div style="margin:8px 0">
+        <label style="font-size:11px;color:#8b949e">Model</label>
+        <select class="model-select" id="set-model"></select>
+      </div>
+    </div>
+
+    <h3>Budget</h3>
+    <div class="budget-row">
+      <label>Calls / season / resident</label>
+      <input type="range" id="set-budget" min="1" max="10" value="2">
+      <span class="bval" id="budget-val">2</span>
+    </div>
+    <div class="budget-row">
+      <label>Max calls / tick</label>
+      <input type="range" id="set-maxpt" min="1" max="10" value="2">
+      <span class="bval" id="maxpt-val">2</span>
+    </div>
+
+    <h3>Recent AI Decisions</h3>
+    <div class="ai-recent" id="ai-recent"></div>
+
+    <button class="save-btn" onclick="saveSettings()">Save</button>
+    <div class="save-msg" id="save-msg"></div>
+  </div>
+</div>
+
+<script>
+const BASE = location.pathname.replace(/\/+$/, '');
+const API = (path) => BASE + path;
+const $ = s => document.getElementById(s);
+const canvas = $('grid');
+const ctx = canvas.getContext('2d');
+const chartCanvas = $('chart');
+const chartCtx = chartCanvas.getContext('2d');
+let state = null;
+let cellSize = 15;
+let selectedResident = null;
+let hoverCell = null;
+let settingsData = null;
+let currentProvider = 'anthropic';
+
+function resize() {
+  const wrap = $('map-wrap');
+  const w = wrap.clientWidth, h = wrap.clientHeight;
+  if (!state) return;
+  cellSize = Math.floor(Math.min(w / state.gw, h / state.gh));
+  cellSize = Math.max(4, Math.min(20, cellSize));
+  canvas.width = state.gw * cellSize;
+  canvas.height = state.gh * cellSize;
+  draw();
+}
+
+function draw() {
+  if (!state) return;
+  const gw = state.gw, gh = state.gh, cs = cellSize;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  const zb = state.climate_zones ? state.climate_zones.boundary : Math.floor(gh/3);
+
+  for (let y = 0; y < gh; y++) {
+    for (let x = 0; x < gw; x++) {
+      const i = y * gw + x;
+      const t = state.terrain[i];
+      const b = state.biomass[i];
+      ctx.fillStyle = state.colors[t];
+      ctx.fillRect(x * cs, y * cs, cs, cs);
+      const maxCap = {'plains':80,'forest':120,'river':60,'lake':50,'mountain':15,'desert':8,'coast':70}[t]||80;
+      const ratio = Math.min(1, b / maxCap);
+      if (t !== 'lake' && t !== 'river') {
+        ctx.fillStyle = `rgba(255,255,255,${ratio * 0.12})`;
+        ctx.fillRect(x * cs, y * cs, cs, cs);
+      }
+    }
+  }
+
+  // Climate zone tint overlay
+  ctx.fillStyle = 'rgba(100,160,255,0.08)';
+  ctx.fillRect(0, 0, gw * cs, zb * cs);
+  ctx.fillStyle = 'rgba(255,180,60,0.06)';
+  ctx.fillRect(0, zb * 2 * cs, gw * cs, (gh - zb * 2) * cs);
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+  ctx.lineWidth = 0.5;
+  for (let x = 0; x <= gw; x++) {
+    ctx.beginPath(); ctx.moveTo(x*cs, 0); ctx.lineTo(x*cs, gh*cs); ctx.stroke();
+  }
+  for (let y = 0; y <= gh; y++) {
+    ctx.beginPath(); ctx.moveTo(0, y*cs); ctx.lineTo(gw*cs, y*cs); ctx.stroke();
+  }
+
+  // Climate zone boundary lines and labels
+  ctx.setLineDash([6, 4]);
+  ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(0, zb * cs); ctx.lineTo(gw * cs, zb * cs); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0, zb * 2 * cs); ctx.lineTo(gw * cs, zb * 2 * cs); ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.font = `${Math.max(9, cs * 0.8)}px monospace`;
+  ctx.fillStyle = 'rgba(200,210,230,0.35)';
+  ctx.textAlign = 'left';
+  ctx.fillText('寒带 Cold', 4, zb * cs / 2 + 4);
+  ctx.fillText('温带 Temperate', 4, zb * cs + zb * cs / 2 + 4);
+  ctx.fillText('热带 Tropical', 4, zb * 2 * cs + (gh - zb * 2) * cs / 2 + 4);
+
+  const r2 = Math.max(2, cs * 0.35);
+  for (const r of state.residents) {
+    const cx = r.x * cs + cs / 2;
+    const cy = r.y * cs + cs / 2;
+    let color;
+    if (r.energy > 60) color = '#3fb950';
+    else if (r.energy > 30) color = '#d29922';
+    else color = '#f85149';
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, r2, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+
+    if (selectedResident && r.id === selectedResident.id) {
+      ctx.strokeStyle = '#58a6ff';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+  }
+
+  if (hoverCell) {
+    ctx.strokeStyle = 'rgba(88,166,255,0.6)';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(hoverCell.x * cs, hoverCell.y * cs, cs, cs);
+  }
+}
+
+function drawChart() {
+  if (!state || !state.history.length) return;
+  const c = chartCanvas;
+  const w = c.parentElement.clientWidth;
+  const h = c.parentElement.clientHeight;
+  c.width = w; c.height = h;
+  const cx = chartCtx;
+  cx.clearRect(0, 0, w, h);
+
+  const hist = state.history;
+  const pops = hist.map(m => m.pop);
+  const maxP = Math.max(10, ...pops);
+
+  cx.beginPath();
+  cx.strokeStyle = '#3fb950';
+  cx.lineWidth = 1.5;
+  for (let i = 0; i < pops.length; i++) {
+    const x = (i / Math.max(1, pops.length - 1)) * w;
+    const y = h - (pops[i] / maxP) * (h - 4) - 2;
+    if (i === 0) cx.moveTo(x, y); else cx.lineTo(x, y);
+  }
+  cx.stroke();
+
+  const last = pops[pops.length - 1];
+  cx.fillStyle = '#8b949e';
+  cx.font = '10px monospace';
+  cx.fillText(`${last}`, w - 30, 12);
+}
+
+function updateStats() {
+  if (!state || !state.metrics) return;
+  const m = state.metrics;
+  $('s-tick').textContent = m.tick || 0;
+  $('s-year').textContent = m.year || 0;
+  const se = $('s-season');
+  se.textContent = m.season || '—';
+  se.className = 'val ' + ({'spring':'green','summer':'yellow','autumn':'yellow','winter':'red'}[m.season]||'');
+  $('s-pop').textContent = m.pop || 0;
+  const zb = state.climate_zones ? state.climate_zones.boundary : Math.floor(state.gh/3);
+  let zCold=0, zTemp=0, zTrop=0;
+  for (const r of state.residents) {
+    if (r.y < zb) zCold++;
+    else if (r.y < zb*2) zTemp++;
+    else zTrop++;
+  }
+  $('s-pop-cold').textContent = zCold;
+  $('s-pop-temp').textContent = zTemp;
+  $('s-pop-trop').textContent = zTrop;
+  $('s-bd').textContent = `${m.total_births||0} / ${m.total_deaths||0}`;
+  $('s-gen').textContent = m.max_gen || 0;
+  $('s-energy').textContent = m.avg_energy || 0;
+  $('s-health').textContent = m.avg_health || 0;
+  $('s-age').textContent = m.avg_age || 0;
+  $('s-gini').textContent = m.gini || 0;
+  $('s-cluster').textContent = m.cluster || 0;
+  $('s-cap').textContent = m.carrying_cap || '—';
+  const pr = m.pressure || 0;
+  const prEl = $('s-pressure');
+  prEl.textContent = pr;
+  prEl.className = 'val ' + (pr > 1.2 ? 'red' : pr > 0.8 ? 'yellow' : 'green');
+  $('seed-info').textContent = `seed: ${state.seed}`;
+
+  // AI stats
+  const ai = state.ai || {};
+  $('s-ai-calls').textContent = ai.total_calls || 0;
+  $('s-ai-pending').textContent = ai.pending || 0;
+  $('s-ai-errors').textContent = ai.total_errors || 0;
+
+  // AI badge
+  const badge = $('ai-badge');
+  if (settingsData && settingsData.ai_enabled) {
+    badge.textContent = `AI ON (${ai.total_calls || 0})`;
+    badge.classList.add('on');
+  } else {
+    badge.textContent = 'AI OFF';
+    badge.classList.remove('on');
+  }
+}
+
+function updateEvents() {
+  if (!state) return;
+  const el = $('events');
+  const evts = state.events.slice().reverse();
+  el.innerHTML = evts.slice(0, 60).map(e =>
+    `<div class="evt ${e.type}"><span class="tick">t${e.tick}</span>${e.text}</div>`
+  ).join('');
+}
+
+function updateResidentPanel() {
+  const panel = $('resident-panel');
+  if (!selectedResident || !state) { panel.classList.remove('show'); return; }
+  const r = state.residents.find(r => r.id === selectedResident.id);
+  if (!r) { panel.classList.remove('show'); selectedResident = null; return; }
+  selectedResident = r;
+  panel.classList.add('show');
+  $('rp-name').textContent = `${r.name} #${r.id}`;
+  $('rp-energy').textContent = r.energy;
+  $('rp-ebar').style.width = `${r.energy}%`;
+  $('rp-health').textContent = r.health;
+  $('rp-hbar').style.width = `${r.health}%`;
+  $('rp-age').textContent = r.age;
+  $('rp-gen').textContent = r.gen;
+  $('rp-bonds').textContent = r.bonds;
+  $('rp-children').textContent = r.children;
+  $('rp-traits').textContent = `STR ${r.str} SPD ${r.spd} PER ${r.per} END ${r.end} SOC ${r.soc}`;
+}
+
+// Interaction
+canvas.addEventListener('mousemove', e => {
+  if (!state) return;
+  const rect = canvas.getBoundingClientRect();
+  const x = Math.floor((e.clientX - rect.left) / cellSize);
+  const y = Math.floor((e.clientY - rect.top) / cellSize);
+  if (x < 0 || x >= state.gw || y < 0 || y >= state.gh) { hoverCell = null; return; }
+  hoverCell = {x, y};
+
+  const i = y * state.gw + x;
+  const t = state.terrain[i];
+  const b = state.biomass[i];
+  const here = state.residents.filter(r => r.x === x && r.y === y);
+  const zb = state.climate_zones ? state.climate_zones.boundary : Math.floor(state.gh/3);
+  const zone = y < zb ? '寒带' : y < zb*2 ? '温带' : '热带';
+  let html = `<b>${t}</b> (${x}, ${y}) ${zone}<br>Biomass: ${b}`;
+  if (here.length) {
+    html += '<br>' + here.map(r => `${r.name} E:${r.energy} H:${r.health}`).join('<br>');
+  }
+  const tip = $('tooltip');
+  tip.innerHTML = html;
+  tip.style.display = 'block';
+  tip.style.left = (e.clientX - $('map-wrap').getBoundingClientRect().left + 12) + 'px';
+  tip.style.top = (e.clientY - $('map-wrap').getBoundingClientRect().top + 12) + 'px';
+  draw();
+});
+
+canvas.addEventListener('mouseleave', () => {
+  hoverCell = null;
+  $('tooltip').style.display = 'none';
+  draw();
+});
+
+canvas.addEventListener('click', e => {
+  if (!state) return;
+  const rect = canvas.getBoundingClientRect();
+  const x = Math.floor((e.clientX - rect.left) / cellSize);
+  const y = Math.floor((e.clientY - rect.top) / cellSize);
+  const here = state.residents.filter(r => r.x === x && r.y === y);
+  if (here.length) {
+    selectedResident = here[0];
+  } else {
+    selectedResident = null;
+  }
+  updateResidentPanel();
+  draw();
+});
+
+// API
+async function fetchState() {
+  try {
+    const r = await fetch(API('/api/state'));
+    state = await r.json();
+    draw();
+    drawChart();
+    updateStats();
+    updateEvents();
+    updateResidentPanel();
+    $('btn-play').textContent = state.running ? 'Pause' : 'Play';
+    $('btn-play').classList.toggle('active', state.running);
+  } catch(e) {}
+}
+
+async function togglePlay() {
+  if (!state) return;
+  await fetch(API(state.running ? '/api/pause' : '/api/start'), {method:'POST'});
+  fetchState();
+}
+
+async function doTick() {
+  await fetch(API('/api/tick'), {method:'POST'});
+  fetchState();
+}
+
+async function doReset() {
+  await fetch(API('/api/reset'), {method:'POST'});
+  selectedResident = null;
+  fetchState();
+}
+
+async function setSpeed(v) {
+  $('speed-val').textContent = v;
+  await fetch(API(`/api/speed/${v}`), {method:'POST'});
+}
+
+// Settings
+async function loadSettings() {
+  try {
+    const r = await fetch(API('/api/settings'));
+    settingsData = await r.json();
+  } catch(e) {}
+}
+
+function openSettings() {
+  loadSettings().then(() => {
+    if (!settingsData) return;
+    $('set-enabled').checked = settingsData.ai_enabled;
+    currentProvider = settingsData.provider || 'anthropic';
+
+    renderProviderTabs();
+    renderProviderConfig();
+
+    $('set-budget').value = settingsData.budget_per_season || 2;
+    $('budget-val').textContent = settingsData.budget_per_season || 2;
+    $('set-maxpt').value = settingsData.max_calls_per_tick || 2;
+    $('maxpt-val').textContent = settingsData.max_calls_per_tick || 2;
+
+    // AI recent decisions
+    const ai = state && state.ai ? state.ai : {};
+    const recent = (ai.recent || []).slice().reverse();
+    $('ai-recent').innerHTML = recent.length
+      ? recent.map(d => `<div class="ai-recent-item"><span class="rname">${d.resident}</span> (t${d.tick}): ${d.response}</div>`).join('')
+      : '<div style="color:#484f58;font-size:11px">No AI decisions yet</div>';
+
+    $('save-msg').textContent = '';
+    $('settings-overlay').classList.add('show');
+  });
+}
+
+function closeSettings() {
+  $('settings-overlay').classList.remove('show');
+}
+
+function renderProviderTabs() {
+  const info = settingsData.provider_info || {};
+  $('provider-tabs').innerHTML = Object.entries(info).map(([k, v]) =>
+    `<div class="provider-tab ${k === currentProvider ? 'active' : ''}" onclick="switchProvider('${k}')">${v.name}</div>`
+  ).join('');
+}
+
+function switchProvider(p) {
+  currentProvider = p;
+  renderProviderTabs();
+  renderProviderConfig();
+}
+
+function renderProviderConfig() {
+  const info = settingsData.provider_info || {};
+  const pconf = settingsData.providers[currentProvider] || {};
+  const models = (info[currentProvider] || {}).models || [];
+
+  // Key status
+  const ks = $('key-status');
+  if (pconf.has_key) {
+    ks.textContent = 'set';
+    ks.className = 'key-status set';
+  } else {
+    ks.textContent = 'unset';
+    ks.className = 'key-status unset';
+  }
+
+  // Key input
+  $('set-key').value = '';
+  $('set-key').placeholder = pconf.has_key ? `Current: ${pconf.api_key}` : 'Paste your API key';
+
+  // Model select
+  const sel = $('set-model');
+  sel.innerHTML = models.map(m =>
+    `<option value="${m.id}" ${m.id === pconf.model ? 'selected' : ''}>${m.label}</option>`
+  ).join('');
+}
+
+$('set-budget').addEventListener('input', function() { $('budget-val').textContent = this.value; });
+$('set-maxpt').addEventListener('input', function() { $('maxpt-val').textContent = this.value; });
+
+async function saveSettings() {
+  const body = {
+    ai_enabled: $('set-enabled').checked,
+    provider: currentProvider,
+    budget_per_season: parseInt($('set-budget').value),
+    max_calls_per_tick: parseInt($('set-maxpt').value),
+    providers: {},
+  };
+
+  // Only send the key if the user typed a new one
+  const keyVal = $('set-key').value.trim();
+  const modelVal = $('set-model').value;
+  body.providers[currentProvider] = {
+    model: modelVal,
+  };
+  if (keyVal) {
+    body.providers[currentProvider].api_key = keyVal;
+  }
+
+  try {
+    const r = await fetch(API('/api/settings'), {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    settingsData = await r.json();
+    $('save-msg').textContent = 'Saved!';
+    renderProviderConfig();
+    setTimeout(() => { $('save-msg').textContent = ''; }, 2000);
+  } catch(e) {
+    $('save-msg').textContent = 'Error saving';
+    $('save-msg').style.color = '#f85149';
+  }
+}
+
+// Init
+loadSettings();
+setInterval(fetchState, 400);
+window.addEventListener('resize', resize);
+fetchState().then(resize);
+setTimeout(resize, 200);
+</script>
+</body>
+</html>

@@ -234,6 +234,103 @@ Phase 1 SHOULD distinguish at least three broad categories:
 
 A world that is uniformly abundant removes any incentive for coordination, storage, or exchange. A world that is uniformly scarce collapses populations before organization can form. The gradient between abundant and scarce zones, and its variation over time, is what gives migration, trade, and surplus-driven behavior a reason to exist.
 
+## Carrying Capacity and Malthusian Equilibrium
+
+The world MUST have a finite carrying capacity determined by total resource regeneration relative to population energy demand.
+
+### Carrying Capacity Definition
+
+Carrying capacity is computed from the annual average of total biomass regeneration across all passable cells, divided by the effective per-resident energy cost:
+
+```text
+avg_season_mult = mean(spring, summer, autumn, winter multipliers)
+total_regrow = sum(cell_regrow * avg_season_mult) for all passable cells
+carrying_cap = total_regrow / (baseline_energy_cost * extraction_inefficiency)
+```
+
+### Population Pressure
+
+Population pressure is the ratio of current living population to carrying capacity:
+
+```text
+pressure = population / carrying_capacity
+```
+
+- When pressure < 0.8: population can grow, surplus is possible, reproduction succeeds regularly.
+- When pressure ≈ 1.0: equilibrium zone. Deaths roughly match births. Surplus is marginal.
+- When pressure > 1.0: Malthusian crisis. Food per capita drops below survival needs.
+
+### Malthusian Amplification
+
+When pressure exceeds 1.0, the following effects MUST intensify proportionally to pressure²:
+
+- Disease probability increases (malnutrition weakens immunity).
+- Conflict and raiding probability increases (desperate individuals attack others for food).
+- Starvation rate accelerates (less food per person per tick).
+
+Additionally, two dedicated Malthusian mechanisms activate:
+
+- **Malnutrition**: when pressure > 1.0, ALL residents lose health at a rate of `2.0 × (pressure − 1.0)²` per tick, representing chronic food shortage affecting the entire population.
+- **Fertility suppression**: when pressure > 0.8, reproduction probability drops as `1.0 / (1.0 + (pressure − 0.8) × 3)`. At pressure 1.3, fertility is ~40% of baseline. This models reduced fecundity under nutritional stress.
+
+This creates a natural population ceiling: growth overshoots carrying capacity → malnutrition and fertility suppression → population stabilizes or crashes back to sustainable levels.
+
+### Carrying Capacity Advancement
+
+The carrying capacity ceiling is NOT fixed forever. It can only be raised by emergent changes that alter the terms of the equation:
+
+- Agricultural techniques (if they emerge) increase effective regrow rates.
+- Food storage (if it emerges) smooths seasonal variation.
+- Tool use (if it emerges) increases foraging efficiency.
+- Trade (if it emerges) redistributes surplus from abundant to scarce zones.
+
+None of these are designed. They must arise from the interaction of life, knowledge, and environment. Until they do, the Malthusian ceiling holds.
+
+### Phase 1 Calibration
+
+Phase 1 uses a 60×80 map with carrying capacity ≈ 170 residents (extraction inefficiency multiplier = 8.0). Initial population is 120, scattered across all three climate zones.
+
+| Terrain   | Biomass Cap | Regrow Rate |
+|-----------|------------|-------------|
+| Plains    | 30         | 0.7         |
+| Forest    | 45         | 1.0         |
+| River     | 25         | 0.6         |
+| Lake      | 15         | 0.4         |
+| Mountain  | 6          | 0.08        |
+| Desert    | 3          | 0.02        |
+| Coast     | 28         | 0.6         |
+
+### Climate Zones
+
+The map is divided into three horizontal climate bands (top to bottom):
+
+| Zone      | Rows     | Season Multipliers                          | Winter Upkeep | Cold Threshold | Cold Damage |
+|-----------|----------|---------------------------------------------|---------------|----------------|-------------|
+| Cold      | 0–26     | spring 1.0, summer 0.7, autumn 0.2, winter 0.02 | 2.5×         | 45 energy      | 15 hp/tick  |
+| Temperate | 27–53    | spring 1.5, summer 1.0, autumn 0.5, winter 0.15 | 1.5×         | 30 energy      | 8 hp/tick   |
+| Tropical  | 54–79    | spring 1.1, summer 1.0, autumn 0.9, winter 0.8  | 1.0× (none)  | 0 (none)       | 0 (none)    |
+
+This creates a latitudinal survival gradient:
+
+- **Tropical**: no winter penalty, near-constant food supply. The initial safe haven.
+- **Temperate**: moderate winters create seasonal pressure but allow survival with sufficient energy reserves.
+- **Cold**: brutal winters with extremely low food regrow (0.02×) and severe cold damage. Uninhabitable without winter survival technology.
+
+In Phase 1, the cold zone depopulates within the first few years. The temperate zone supports marginal populations. The tropical zone becomes the population center. Expansion into colder zones requires emergent adaptations (food storage, shelter, clothing) that raise effective winter survival — a key milestone in civilization emergence.
+
+Terrain generation varies by climate zone: cold zones have more mountains and fewer forests; tropical zones have more forests, rivers, and coastline; temperate zones use the baseline distribution.
+
+### Terrain Hazards
+
+Harsh terrain MUST impose injury risk during movement, independent of energy cost:
+
+- Mountain: 8% injury chance per crossing.
+- River: 6% injury chance per crossing.
+- Desert: 5% injury chance per crossing.
+- Coast: 2% injury chance per crossing.
+
+Injury risk is reduced by the resident's endurance trait. Hazard damage ranges from 8–25 health points.
+
 ## Water Model
 
 Water is important enough in early civilization search that it SHOULD be treated as a first-class environmental constraint.

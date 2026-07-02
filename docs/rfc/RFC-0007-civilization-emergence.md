@@ -126,15 +126,60 @@ The following conditions, defined in earlier RFCs, create the possibility space 
 
 None of these alone produces civilization. Civilization is what happens when they interact at sufficient density, for sufficient time, under sufficient pressure.
 
+## The Malthusian Trap
+
+The Malthusian trap is the foundational population dynamic of OCP. It is not a failure state — it is the baseline condition from which civilization must escape.
+
+### Mechanism
+
+1. Population grows when food is sufficient (births > deaths).
+2. Population hits the carrying capacity ceiling set by resource regeneration.
+3. Beyond the ceiling: per-capita food drops, starvation rises, disease amplifies, conflict erupts.
+4. Population crashes back to or below carrying capacity.
+5. Cycle repeats.
+
+### Why It Matters for Emergence
+
+The Malthusian trap is what gives civilization its purpose. Without it, there is no pressure to organize:
+
+- **Agriculture emerges** because foraging hits a ceiling.
+- **Storage emerges** because seasonal variation kills the unprepared.
+- **Trade emerges** because local scarcity can be offset by distant surplus.
+- **Cooperation emerges** because coordinated groups extract resources more efficiently than individuals.
+- **War emerges** because one group can raise its effective carrying capacity by taking another group's territory.
+
+Every emergent institution in human history can be understood as a strategy to raise, redistribute, or defend against the carrying capacity ceiling.
+
+### Escaping the Trap
+
+The only way to permanently raise carrying capacity is through emergent changes to the resource equation:
+
+- Agricultural knowledge → higher effective regrow rates
+- Tool-making → higher foraging efficiency
+- Storage technology → smoothing seasonal variation
+- Trade networks → redistributing surplus across zones
+
+These must emerge from resident behavior and knowledge accumulation (RFC-0006). They cannot be granted by the engine.
+
+### Phase 1 Calibration
+
+Phase 1 uses a 60×80 map divided into three climate zones (cold, temperate, tropical) with a total carrying capacity of approximately 170 residents. The initial population of 120 is scattered across all zones.
+
+The first winter acts as a founding bottleneck: the cold zone depopulates entirely, the temperate zone suffers heavy losses, and the tropical zone becomes the primary population center. This mirrors the real constraint that early human populations concentrated in habitable climate bands.
+
+Population typically overshoots carrying capacity to 200–250 before Malthusian mechanisms (malnutrition at `5.0 × (pressure−1)²`, fertility suppression, amplified disease) create equilibrium. Expansion into temperate and cold zones requires emergent winter survival adaptations — a key driver of civilization emergence.
+
 ## Scaling Pressures
 
 Organizations do not form because they are designed. They form because individual survival strategies become insufficient at certain scales.
 
-### Population Density
+### Population Density and the Malthusian Ceiling
 
-- As local populations grow, resource competition intensifies.
+- As local populations approach carrying capacity, resource competition intensifies non-linearly.
+- Disease probability scales with pressure² — crowding amplifies epidemics.
+- Raiding behavior emerges among starving individuals, creating a violence cycle.
 - Coordination reduces conflict cost and improves collective foraging/defense.
-- Without coordination mechanisms, dense populations are unstable.
+- Without coordination mechanisms, dense populations are unstable and crash.
 
 ### Resource Scarcity
 

@@ -136,7 +136,7 @@ Update state (energy, health, memory, location)
 - If energy reserve falls below a starvation threshold, health MUST degrade.
 - If health reaches zero, the resident dies.
 - Death MUST be permanent within a lineage. There is no resurrection.
-- Residents MUST be able to die from starvation, exhaustion, injury, exposure, or age.
+- Residents MUST be able to die from starvation, disease, infant mortality, accidents, conflict, exposure, or age.
 
 ### Survival Pressure
 
@@ -145,6 +145,7 @@ Survival pressure is the gap between what a resident needs to stay alive and wha
 - High survival pressure SHOULD increase movement, risk-taking, and conflict.
 - Low survival pressure SHOULD enable surplus accumulation, experimentation, and social investment.
 - Survival pressure SHOULD vary spatially and temporally rather than being globally uniform.
+- When population exceeds carrying capacity (see RFC-0003), survival pressure intensifies non-linearly, amplifying all mortality factors.
 
 ## Perception
 
@@ -223,6 +224,25 @@ Phase 1 MAY use a simplified reproduction model:
 
 Sexual reproduction, mate selection, and kinship complexity MAY be deferred to Phase 2.
 
+### Phase 1 Reproduction Parameters
+
+| Parameter          | Value | Rationale                                         |
+|--------------------|-------|----------------------------------------------------|
+| REPRODUCTION_AGE   | 13    | Earliest age for reproduction                      |
+| REPRODUCTION_ENERGY| 55    | Both parents must have energy above this threshold |
+| REPRODUCTION_COST  | 25    | Energy deducted from each parent per birth          |
+| OFFSPRING_ENERGY   | 20    | Starting energy of newborn                          |
+
+### Fertility Suppression Under Pressure
+
+When population pressure exceeds 0.8, reproduction probability declines:
+
+```text
+fertility = 1.0 / (1.0 + (pressure − 0.8) × 5)
+```
+
+At pressure 1.0, fertility is ~50% of baseline. At pressure 1.5, fertility drops to ~22%. This models reduced fecundity under nutritional stress and is a key mechanism preventing unchecked population overshoot beyond carrying capacity.
+
 ## Aging and Death
 
 ### Aging
@@ -231,14 +251,73 @@ Sexual reproduction, mate selection, and kinship complexity MAY be deferred to P
 - Age SHOULD affect capability: young residents may have lower cognitive budgets and physical capacity; old residents may have accumulated memory and social bonds but declining physical capacity.
 - Maximum lifespan SHOULD be bounded.
 
-### Death
+### Phase 1 Lifecycle Parameters
 
-Death may occur from:
+Phase 1 targets an average lifespan of approximately 30 ticks (corresponding to primitive-era life expectancy), consistent with historical pre-agricultural societies:
 
-- starvation (energy depletion)
-- health collapse (accumulated injury, disease, exposure)
-- old age (exceeding lifespan bound)
-- violence (conflict resolution, see below)
+| Parameter          | Value | Rationale                                   |
+|--------------------|-------|---------------------------------------------|
+| MAX_AGE            | 65    | Maximum possible lifespan                   |
+| REPRODUCTION_AGE   | 13    | Earliest age for reproduction               |
+| INFANT_AGE         | 5     | End of high-mortality childhood period       |
+| Age decline onset  | 35    | Physical deterioration begins               |
+
+### Mortality Factors
+
+Death may occur from multiple causes, each modeled independently:
+
+#### Starvation
+
+- When energy reaches 0, health degrades by `5 × pressure_mult` per tick, where pressure_mult = max(1.0, pressure²).
+- This is the primary population control when resources are scarce.
+
+#### Malnutrition
+
+- When population pressure exceeds 1.0, ALL residents lose health at `5.0 × (pressure − 1.0)²` per tick.
+- This represents chronic food shortage affecting the entire population, not just those who have completely run out of energy.
+
+#### Disease
+
+- Base probability: 0.5% per tick per resident.
+- Crowding bonus: +1.0% per additional resident on the same cell.
+- Population pressure multiplier: probability × pressure² when over carrying capacity.
+- Weakened residents (health < 40): probability × 1.5.
+- Damage: 10–35 health points per episode.
+
+#### Infant Mortality
+
+- Residents under age 5 face 2.5% per tick chance of health loss (8–20 damage).
+- This produces meaningful childhood mortality consistent with primitive-era demographics.
+
+#### Winter Exposure
+
+Winter damage is climate-zone dependent (see RFC-0003 Climate Zones):
+
+- **Cold zone**: energy threshold 45, up to 15 hp/tick cold damage, 2.5× winter upkeep.
+- **Temperate zone**: energy threshold 30, up to 8 hp/tick cold damage, 1.5× winter upkeep.
+- **Tropical zone**: no winter cold damage, no upkeep increase.
+
+This creates the primary selection pressure that drives population concentration in the tropical zone during Phase 1.
+
+#### Random Accidents
+
+- 0.3% per tick chance of injury (8–22 damage), amplified by pressure_mult.
+- Represents falls, animal attacks, drowning, and other environmental hazards.
+
+#### Age Decline
+
+- After age 35, increasing probability of health loss per tick.
+- Probability scales with distance past age 35, reaching high levels near MAX_AGE.
+- Damage: 5 health points per episode.
+
+### Death Classification
+
+When a resident dies, the cause is classified as:
+
+- `old_age` — exceeded MAX_AGE
+- `starvation` — energy was 0 at time of death
+- `infant_death` — died before INFANT_AGE
+- `disease` — all other health-collapse deaths
 
 ### Legacy on Death
 
@@ -274,6 +353,22 @@ Phase 1 SHOULD support at least:
 - Conflict MUST be resolvable through physics-layer mechanics (energy cost, injury risk, outcome uncertainty).
 - Conflict MUST NOT be scripted or predetermined.
 - The weaker party MUST have some probability of escape, injury to the aggressor, or deterrence through allies.
+
+### Resource Conflict
+
+When multiple hungry residents compete for scarce food on the same cell (biomass < 15), there is an 18% chance of combat. Outcome is determined by strength traits with randomness. The loser takes 5–25 damage.
+
+### Raiding
+
+Raiding is a desperate survival behavior triggered when a resident is starving (energy < 18) with no local food available:
+
+- The resident attacks an adjacent resident who has more energy (> 30).
+- Raid probability scales with the attacker's risk tolerance trait.
+- If the raider wins (strength contest with randomness): steals up to 40% of victim's energy, victim takes 5–18 damage.
+- If the raider loses: takes 10–28 damage.
+- Raiding degrades social bonds between attacker and victim.
+
+Raiding increases sharply when population exceeds carrying capacity (Malthusian crisis), as more residents fall below the starvation threshold while food cells are depleted.
 
 ## Memory
 
@@ -421,10 +516,10 @@ That is enough to produce migration, clustering, resource competition, proto-coo
 ## Open Questions
 
 - What is the optimal perception radius for Phase 1 (too small = isolation, too large = omniscience)?
-- Should Phase 1 include disease or only starvation/injury/age as death causes?
 - How should initial population be seeded — clustered, scattered, or mixed?
 - What is the minimum memory capacity that supports useful social behavior without excessive state?
-- Should conflict outcomes be purely stochastic or trait-weighted?
+- Should group warfare (coordinated multi-resident attacks) be modeled, or does individual raiding suffice for Phase 1?
+- How should emerging agricultural behavior (if it appears) modify mortality parameters?
 
 ## Future Dependencies
 
