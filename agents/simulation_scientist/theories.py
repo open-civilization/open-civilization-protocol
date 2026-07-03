@@ -1,12 +1,21 @@
 """Theory lenses for the Simulation Scientist Agent.
 
-Each lens encodes a real-world quantitative theory (population dynamics,
-information theory, kin selection, collective action, exchange economics)
-as a concrete PREDICTION and a COMPARISON function that checks simulation
-data against that prediction. This is what lets the agent discover
-structural gaps the way a human researcher would — "here is what the
-established theory predicts, here is what we observe, here is the gap" —
-rather than only checking a fixed list of ad hoc heuristics (see audit.py).
+Each lens encodes a real-world quantitative theory as a concrete PREDICTION
+and a COMPARISON function that checks simulation data against that
+prediction. This is what lets the agent discover structural gaps the way a
+human researcher would — "here is what the established theory predicts,
+here is what we observe, here is the gap" — rather than only checking a
+fixed list of ad hoc heuristics (see audit.py).
+
+The five lenses below are a SEED set (population dynamics, information
+theory, kin selection, collective action, exchange economics), not a fixed
+ceiling. The agent is expected to grow this list itself: when an anomaly
+doesn't match any registered lens, `discovery.py` asks the LLM to identify
+the most authoritative real-world theory for that specific domain — which
+may be economics, political science, philosophy, physics, or anything
+else — and appends a new lens function here, plus a citation write-up under
+`theories/`. Do not treat this file's current contents as the intended final
+scope of what the agent can reason about.
 
 Every lens is intentionally self-contained and numeric: a `TheoryFinding`
 always carries the observed value(s), so an LLM advisor (or a human) can
@@ -268,6 +277,9 @@ def _exchange_economics_compare(history: list[dict[str, Any]], state: dict[str, 
     return None
 
 
+# SEED_LENSES_END — discovery.py looks for this exact marker and inserts newly
+# discovered lenses (function definition + registration) directly above it, so the
+# lens library can grow without ever needing to touch the lenses defined above.
 LENSES: list[TheoryLens] = [
     TheoryLens("Malthusian population dynamics", "Malthus (1798)",
                "Population oscillates around carrying capacity under growth/check dynamics.",
@@ -284,6 +296,7 @@ LENSES: list[TheoryLens] = [
     TheoryLens("Exchange economics / medium-of-exchange absence", "Jevons (1875)",
                "Without trade, local surplus and local scarcity coexist rather than equalizing.",
                _exchange_economics_compare),
+    # AUTO-DISCOVERED LENSES REGISTERED BELOW THIS LINE — appended by discovery.py
 ]
 
 

@@ -145,7 +145,7 @@ def get_advice(
 
     engine_source = engine_path.read_text(encoding="utf-8")
     prompt = build_prompt(report, engine_source)
-    raw = call_llm(provider, api_key, model, prompt, max_tokens=600)
+    raw = call_llm(provider, api_key, model, prompt, max_tokens=1200, timeout=60)
     if not raw:
         return Proposal(hypothesis="", action="none", rationale="LLM call failed or returned nothing.")
 

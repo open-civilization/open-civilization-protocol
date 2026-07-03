@@ -47,6 +47,11 @@ def build_parser() -> argparse.ArgumentParser:
     auto_parser.add_argument("--experiment-timeout", type=float, default=600.0)
     auto_parser.add_argument("--seed-base", type=int, default=1000)
     auto_parser.add_argument("--stop-on-extinction", action="store_true")
+    auto_parser.add_argument(
+        "--no-theory-discovery", action="store_true",
+        help="Disable autonomous theory-lens discovery for this run (still uses whatever "
+             "lenses are already registered in theories.py).",
+    )
     auto_parser.add_argument("--out", type=Path, help="Optional path to write the loop report markdown.")
 
     return parser
@@ -83,6 +88,7 @@ def _run_autonomous_mode(args: argparse.Namespace) -> int:
         experiment_timeout=args.experiment_timeout,
         seed_base=args.seed_base,
         stop_on_extinction=args.stop_on_extinction,
+        enable_theory_discovery=not args.no_theory_discovery,
     )
     rendered = report.to_markdown()
     if args.out:

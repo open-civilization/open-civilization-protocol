@@ -102,22 +102,22 @@ def get_public_settings(settings):
 
 # ── LLM Calls ──
 
-def call_llm(provider: str, api_key: str, model: str, prompt: str, max_tokens: int = 80) -> Optional[str]:
+def call_llm(provider: str, api_key: str, model: str, prompt: str, max_tokens: int = 80, timeout: int = 20) -> Optional[str]:
     try:
         if provider == 'anthropic':
-            return _call_anthropic(api_key, model, prompt, max_tokens)
+            return _call_anthropic(api_key, model, prompt, max_tokens, timeout)
         elif provider in ('openai', 'deepseek'):
             url = PROVIDERS[provider]['url']
-            return _call_openai_compat(url, api_key, model, prompt, max_tokens)
+            return _call_openai_compat(url, api_key, model, prompt, max_tokens, timeout)
         elif provider == 'google':
-            return _call_google(api_key, model, prompt, max_tokens)
+            return _call_google(api_key, model, prompt, max_tokens, timeout)
         return None
     except Exception as e:
         log.warning("LLM call failed: %s", e)
         return None
 
 
-def _call_anthropic(key, model, prompt, max_tokens):
+def _call_anthropic(key, model, prompt, max_tokens, timeout=20):
     r = httpx.post(
         PROVIDERS['anthropic']['url'],
         headers={
@@ -130,13 +130,13 @@ def _call_anthropic(key, model, prompt, max_tokens):
             'max_tokens': max_tokens,
             'messages': [{'role': 'user', 'content': prompt}],
         },
-        timeout=20,
+        timeout=timeout,
     )
     r.raise_for_status()
     return r.json()['content'][0]['text']
 
 
-def _call_openai_compat(url, key, model, prompt, max_tokens):
+def _call_openai_compat(url, key, model, prompt, max_tokens, timeout=20):
     r = httpx.post(
         url,
         headers={
@@ -148,13 +148,13 @@ def _call_openai_compat(url, key, model, prompt, max_tokens):
             'max_tokens': max_tokens,
             'messages': [{'role': 'user', 'content': prompt}],
         },
-        timeout=20,
+        timeout=timeout,
     )
     r.raise_for_status()
     return r.json()['choices'][0]['message']['content']
 
 
-def _call_google(key, model, prompt, max_tokens):
+def _call_google(key, model, prompt, max_tokens, timeout=20):
     url = f"{PROVIDERS['google']['url']}/models/{model}:generateContent?key={key}"
     r = httpx.post(
         url,
@@ -163,7 +163,7 @@ def _call_google(key, model, prompt, max_tokens):
             'contents': [{'parts': [{'text': prompt}]}],
             'generationConfig': {'maxOutputTokens': max_tokens},
         },
-        timeout=20,
+        timeout=timeout,
     )
     r.raise_for_status()
     return r.json()['candidates'][0]['content']['parts'][0]['text']
