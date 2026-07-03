@@ -249,7 +249,22 @@ canvas{image-rendering:pixelated}
   <div id="agent-modal">
     <h2>Simulation Scientist Agent <button onclick="closeAgent()">&times;</button></h2>
 
-    <div class="agent-controls">
+    <h3>Agent Model <span style="font-weight:normal;color:#484f58;text-transform:none;letter-spacing:0">(separate from the resident AI settings)</span></h3>
+    <div class="provider-tabs" id="agent-provider-tabs"></div>
+    <div id="agent-provider-config">
+      <div style="margin:8px 0">
+        <label style="font-size:11px;color:#8b949e">API Key <span class="key-status" id="agent-key-status">unset</span></label>
+        <input type="password" class="key-input" id="agent-set-key" placeholder="Paste your API key">
+      </div>
+      <div style="margin:8px 0">
+        <label style="font-size:11px;color:#8b949e">Model</label>
+        <select class="model-select" id="agent-set-model"></select>
+      </div>
+    </div>
+    <button class="save-btn" style="width:auto;padding:6px 16px" onclick="saveAgentSettings()">Save Model Settings</button>
+    <span class="save-msg" id="agent-settings-save-msg" style="margin-left:8px"></span>
+
+    <div class="agent-controls" style="margin-top:16px">
       <label>Iterations <input type="number" id="agent-max-iter" min="1" max="20" value="3" style="width:50px"></label>
       <label>Ticks/iter <input type="number" id="agent-ticks" min="50" max="5000" value="500" style="width:70px"></label>
       <button class="save-btn" id="agent-start-btn" onclick="startAgent()">Start</button>
@@ -697,11 +712,82 @@ async function saveSettings() {
 
 // ── Simulation Scientist Agent ──
 let agentPollTimer = null;
+let agentSettingsData = null;
+let agentCurrentProvider = 'anthropic';
 
 function openAgent() {
   $('agent-overlay').classList.add('show');
+  loadAgentSettings();
   refreshAgentStatus();
   if (!agentPollTimer) agentPollTimer = setInterval(refreshAgentStatus, 2500);
+}
+
+async function loadAgentSettings() {
+  try {
+    const r = await fetch(API('/api/agent/settings'));
+    agentSettingsData = await r.json();
+  } catch(e) { return; }
+  agentCurrentProvider = agentSettingsData.provider || 'anthropic';
+  renderAgentProviderTabs();
+  renderAgentProviderConfig();
+  $('agent-settings-save-msg').textContent = '';
+}
+
+function renderAgentProviderTabs() {
+  const info = agentSettingsData.provider_info || {};
+  $('agent-provider-tabs').innerHTML = Object.entries(info).map(([k, v]) =>
+    `<div class="provider-tab ${k === agentCurrentProvider ? 'active' : ''}" onclick="switchAgentProvider('${k}')">${v.name}</div>`
+  ).join('');
+}
+
+function switchAgentProvider(p) {
+  agentCurrentProvider = p;
+  renderAgentProviderTabs();
+  renderAgentProviderConfig();
+}
+
+function renderAgentProviderConfig() {
+  const info = agentSettingsData.provider_info || {};
+  const pconf = agentSettingsData.providers[agentCurrentProvider] || {};
+  const models = (info[agentCurrentProvider] || {}).models || [];
+
+  const ks = $('agent-key-status');
+  if (pconf.has_key) {
+    ks.textContent = 'set';
+    ks.className = 'key-status set';
+  } else {
+    ks.textContent = 'unset';
+    ks.className = 'key-status unset';
+  }
+
+  $('agent-set-key').value = '';
+  $('agent-set-key').placeholder = pconf.has_key ? `Current: ${pconf.api_key}` : 'Paste your API key';
+
+  const sel = $('agent-set-model');
+  sel.innerHTML = models.map(m =>
+    `<option value="${m.id}" ${m.id === pconf.model ? 'selected' : ''}>${m.label}</option>`
+  ).join('');
+}
+
+async function saveAgentSettings() {
+  const body = { provider: agentCurrentProvider, providers: {} };
+  const keyVal = $('agent-set-key').value.trim();
+  const modelVal = $('agent-set-model').value;
+  body.providers[agentCurrentProvider] = { model: modelVal };
+  if (keyVal) {
+    body.providers[agentCurrentProvider].api_key = keyVal;
+  }
+  try {
+    const r = await fetch(API('/api/agent/settings'), {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    agentSettingsData = await r.json();
+    $('agent-settings-save-msg').textContent = 'Saved!';
+    $('agent-settings-save-msg').style.color = '#3fb950';
+    renderAgentProviderConfig();
+    setTimeout(() => { $('agent-settings-save-msg').textContent = ''; }, 2000);
+  } catch(e) {
+    $('agent-settings-save-msg').textContent = 'Error saving';
+    $('agent-settings-save-msg').style.color = '#f85149';
+  }
 }
 
 function closeAgent() {

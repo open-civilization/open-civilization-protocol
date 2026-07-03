@@ -19,6 +19,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.append(str(REPO_ROOT))
 
 from agents.simulation_scientist import run_audit
+from agents.simulation_scientist import agent_settings
 from agents.simulation_scientist.local_loop import LocalAgentRunner
 
 app = FastAPI(title="OCP Phase 1")
@@ -109,6 +110,17 @@ def agent_stop():
 @app.get("/api/agent/status")
 def agent_status():
     return agent_runner.get_status()
+
+
+@app.get("/api/agent/settings")
+def agent_settings_get():
+    return agent_settings.get_public_settings(agent_settings.load_settings())
+
+
+@app.post("/api/agent/settings")
+def agent_settings_post(body: dict):
+    updated = agent_settings.update_settings(body)
+    return agent_settings.get_public_settings(updated)
 
 
 @app.get("/")

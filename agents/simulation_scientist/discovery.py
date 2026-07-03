@@ -32,9 +32,11 @@ from statistics import mean, median, pstdev
 from typing import Any, Optional
 
 try:
-    from simulation.ocp.ai import call_llm, load_settings
+    from simulation.ocp.ai import call_llm
 except ModuleNotFoundError:
-    from ocp.ai import call_llm, load_settings
+    from ocp.ai import call_llm
+
+from .agent_settings import load_settings
 
 from .theories import LENSES, TheoryFinding
 

@@ -5,9 +5,9 @@ constants in engine.py, asks an LLM to propose exactly one next experiment —
 either a single constant adjustment or a small, precisely-scoped code edit —
 and parses that proposal into a structured, safely-applicable form.
 
-Reuses the same LLM provider/credentials configured for resident AI decisions
-(RFC-0005) via simulation.ocp.ai.load_settings/call_llm, so no separate API
-key setup is needed.
+Uses its own provider/model/key, configured independently of resident AI
+decisions (RFC-0005) via agent_settings.py — the agent is a different
+consumer and is free to run a different LLM than the live simulation.
 """
 
 from __future__ import annotations
@@ -19,9 +19,11 @@ from pathlib import Path
 from typing import Any, Optional
 
 try:
-    from simulation.ocp.ai import call_llm, load_settings
+    from simulation.ocp.ai import call_llm
 except ModuleNotFoundError:
-    from ocp.ai import call_llm, load_settings
+    from ocp.ai import call_llm
+
+from .agent_settings import load_settings
 
 
 @dataclass
@@ -155,8 +157,8 @@ def get_advice(
         return Proposal(
             hypothesis="",
             action="none",
-            rationale="No LLM API key configured in settings.json — set one under the AI "
-                      "settings used for resident decisions, or pass --provider/--api-key.",
+            rationale="No LLM API key configured for the agent — set one in the Agent tab's "
+                      "settings panel (separate from the resident AI settings).",
         )
 
     engine_source = engine_path.read_text(encoding="utf-8")
