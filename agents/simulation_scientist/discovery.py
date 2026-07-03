@@ -126,7 +126,10 @@ Write a Python function implementing the comparison, matching this exact contrac
         # return a TheoryFinding(...) if there is a quantified, evidenced gap
 It must be complete, syntactically valid, and self-contained. `TheoryFinding`, `mean`,
 `median`, and `pstdev` are already available in scope — do not write any import statements,
-and do not reference anything not described in the data schema above.
+and do not reference anything not described in the data schema above. This function is
+pure read-only analysis: it must never mutate `history` or `state`, and must not be a
+disguised way of injecting new simulated "facts" — it only measures and reports a gap
+between theory and observation, it never creates the thing being measured.
 
 Respond with ONLY a JSON object, no other text, in this exact shape:
 {{

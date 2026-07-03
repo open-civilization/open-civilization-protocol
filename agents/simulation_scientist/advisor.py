@@ -98,6 +98,22 @@ become. Do not paraphrase the source; quote it exactly. Keep the edit as small a
 while still being a real, working mechanism — do not propose multi-function refactors in one
 step; iterate.
 
+CONSTITUTIONAL CONSTRAINT — this project's one non-negotiable rule (RFC-0001 Law 6, RFC-0007
+"Detection vs Design"): every change you propose must be a change to a RULE — a probability,
+formula, threshold, discovery gate, or decision-logic condition that GOVERNS how outcomes can
+emerge — never a change that directly CREATES a specific outcome, grants a resident knowledge/
+skill/state outside an existing probabilistic discovery path, or hardcodes a new fixed "fact"
+into the simulation. Concretely:
+  - ALLOWED: adjusting a discovery_chance value; changing what condition gates a discovery;
+    adding a new gating condition (e.g. a relatedness check) to an existing probabilistic
+    mechanism; changing how an existing effect scales; adding a new decay/erosion term.
+  - NOT ALLOWED: directly setting `r.known_knowledge[...] = {{...}}` or `r.skills[...] = ...`
+    outside of a probability roll or other existing acquisition pathway; inventing a new
+    named technology/knowledge/civilization feature and simply granting it to residents;
+    hardcoding specific values that represent invented in-world "content" rather than a
+    tunable rule. If you cannot express your idea as a rule change, propose "none" instead
+    and explain why in `rationale`.
+
 Respond with ONLY a JSON object, no other text, in this exact shape:
 {{
   "hypothesis": "one sentence: what you think is happening and why",
@@ -199,8 +215,38 @@ def apply_parameter_change(engine_path: Path, name: str, new_value: str) -> Appl
     return ApplyResult(applied=True, message=f"{name} changed to {new_value}")
 
 
+_DIRECT_GRANT_PATTERN = re.compile(r"\b(?:known_knowledge|skills)\s*\[[^\]]*\]\s*=")
+
+
+def check_constitutional_compliance(new_string: str) -> tuple[bool, str]:
+    """Static guardrail for RFC-0001 Law 6 / RFC-0007 "Detection vs Design": a proposed
+    edit may change the RULES that govern how outcomes can emerge (a discovery chance, a
+    gating condition, a formula, a decision threshold), but must never directly grant a
+    resident knowledge/skill/state outside an existing probabilistic acquisition pathway,
+    or hardcode a new fixed "fact" into the simulation. Every legitimate knowledge grant in
+    this codebase is written as a direct known_knowledge/skills assignment guarded by a
+    `random.random()` roll (see engine.py's food_storage/shelter/clothing/fire/language/
+    writing/domestication discovery blocks) — an edit that assigns to either without any
+    randomness present anywhere in the same edit is very likely injecting content rather
+    than changing a rule, and is rejected."""
+    if _DIRECT_GRANT_PATTERN.search(new_string) and "random.random()" not in new_string:
+        return False, (
+            "Rejected: new_string directly assigns to known_knowledge[...] or skills[...] "
+            "without any random.random() gate present in the same edit. Per this project's "
+            "constitutional constraint (RFC-0001 Law 6), knowledge/skill grants must remain "
+            "probabilistic and tied to an existing acquisition pathway — propose the "
+            "surrounding gate/condition as part of the same edit, or express this as a rule "
+            "change (a chance, threshold, or formula) instead of a direct grant."
+        )
+    return True, "OK"
+
+
 def apply_code_edit(file_path: Path, old_string: str, new_string: str) -> ApplyResult:
     """Same contract as the interactive Edit tool: old_string must appear exactly once."""
+    compliant, compliance_message = check_constitutional_compliance(new_string)
+    if not compliant:
+        return ApplyResult(applied=False, message=compliance_message)
+
     source = file_path.read_text(encoding="utf-8")
     count = source.count(old_string)
     if count == 0:
