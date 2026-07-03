@@ -104,13 +104,50 @@ TERRAIN_GRAZING = {'plains': 0.8, 'mountain': 1.0, 'desert': 0.3}
 TERRAIN_FARMING = {'plains': 1.0, 'river': 0.7, 'forest': 0.2}
 
 DOMESTICATION_DISCOVERY_CHANCE = 0.0025  # per qualifying forage tick, before suitability scaling
+# Not every wild variant a forager experiments with actually becomes a stable domesticate —
+# most real domestication attempts throughout history failed (of the world's ~200,000 plant
+# species, only a few hundred were ever domesticated). A discovery "hit" above represents
+# trying a promising wild plant/animal; whether it actually takes is a separate, harder roll.
+DOMESTICATION_SUCCESS_CHANCE = 0.45
 # Residents forage nomadically and rarely revisit the exact same cell many ticks in a row,
 # so a single visit must contribute a meaningful amount for land improvement to be observable
 # at population scale; decay is slow so occasional return visits still net-accumulate.
 CULTIVATION_GAIN_RATE = 1.2  # cultivation gained per forage tick at full skill and suitability
 CULTIVATION_DECAY = 0.0002  # cultivation lost per tick when not actively tended
 CULTIVATION_MAX_BONUS = 7.0  # at cultivation=1.0, regrow is multiplied by (1 + this) — real farmland
-                              # vastly outproduces wild foraging per unit area
+                              # vastly outproduces wild foraging per unit area, BEFORE any further
+                              # agricultural technology (see ag_tech_mult / CROP_ARCHETYPES below)
+
+# Crop archetypes — zoology/botany-flavored energy density profiles, randomly assigned when
+# crop_cultivation is first successfully domesticated, weighted by which staple crop TYPE
+# actually suits the discoverer's climate zone (grains dominate temperate agriculture
+# precisely because of superior caloric yield density per cultivated area; tropical
+# agriculture historically leaned on calorie-dense-per-labor but bulkier tubers; legumes
+# are viable everywhere but are a secondary rather than staple crop).
+CROP_ARCHETYPES = {
+    'grain': {'energy_density_mult': 1.4, 'zone_weights': {'temperate': 3.0, 'tropical': 0.5, 'cold': 0.4}},
+    'tuber': {'energy_density_mult': 1.0, 'zone_weights': {'temperate': 0.8, 'tropical': 3.0, 'cold': 0.6}},
+    'legume': {'energy_density_mult': 1.15, 'zone_weights': {'temperate': 1.2, 'tropical': 1.5, 'cold': 0.3}},
+}
+LIVESTOCK_ARCHETYPES = {
+    'grazer': {'energy_density_mult': 1.1, 'zone_weights': {'cold': 3.0, 'temperate': 1.0, 'tropical': 0.3}},
+    'browser': {'energy_density_mult': 0.95, 'zone_weights': {'tropical': 2.0, 'temperate': 1.0, 'cold': 0.2}},
+}
+
+# Agricultural technology ladder — each tier multiplies the land's energy-density ceiling
+# further, mirroring the real historical trajectory (irrigation civilizations, then
+# selective breeding of higher-yield varieties over generations, then industrial-era
+# fertilizer/pesticides — the "Green Revolution," the single largest jump in yield per
+# area in history). A cell's ag_tech_mult ratchets up to the best tier any farmer working
+# it has achieved and never decreases — technique embedded in how a plot is worked doesn't
+# un-happen, even though the plot's cultivation LEVEL can still lapse if untended.
+IRRIGATION_DISCOVERY_CHANCE = 0.003    # per tick, requires crop_cultivation + water-adjacent cell
+IRRIGATION_MULT = 1.5
+BREEDING_DISCOVERY_CHANCE = 0.002      # per tick, requires deep crop_cultivation mastery
+BREEDING_SKILL_THRESHOLD = 60.0        # generations of selection require real mastery, not a novice
+BREEDING_MULT = 1.6
+FERTILIZER_DISCOVERY_CHANCE = 0.0015   # per tick, requires writing (systematic record-keeping) + breeding
+FERTILIZER_MULT = 2.2
 
 # ── Caloric Health Model ──
 # Cold, hunger, and technology are unified through a single physical quantity: how many
@@ -183,6 +220,37 @@ WRITING_GROUP_SIZE = 3               # writing serves a larger, more organized g
 WRITING_PRESSURE_THRESHOLD = 0.9     # society has grown to fill its available capacity
 
 
+def _pick_archetype(archetypes, zone):
+    """Weighted-random selection of a crop/livestock archetype for the given climate zone —
+    which specific staple a population ends up with is a random outcome of what was
+    available to experiment with locally, not a designed choice."""
+    names = list(archetypes.keys())
+    weights = [archetypes[n]['zone_weights'].get(zone, 0.1) for n in names]
+    return random.choices(names, weights=weights, k=1)[0]
+
+
+def _ag_tech_mult(r):
+    """The energy-density ceiling multiplier this resident's current agricultural
+    knowledge would confer if applied to a plot — crop/livestock archetype x irrigation x
+    selective breeding x fertilizer, each an independent, stacking tier."""
+    mult = 1.0
+    if 'crop_cultivation' in r.known_knowledge:
+        crop_type = r.known_knowledge['crop_cultivation'].get('crop_type')
+        if crop_type in CROP_ARCHETYPES:
+            mult *= CROP_ARCHETYPES[crop_type]['energy_density_mult']
+    if 'animal_husbandry' in r.known_knowledge:
+        livestock_type = r.known_knowledge['animal_husbandry'].get('crop_type')
+        if livestock_type in LIVESTOCK_ARCHETYPES:
+            mult *= LIVESTOCK_ARCHETYPES[livestock_type]['energy_density_mult']
+    if 'irrigation' in r.known_knowledge:
+        mult *= IRRIGATION_MULT
+    if 'selective_breeding' in r.known_knowledge:
+        mult *= BREEDING_MULT
+    if 'fertilizer' in r.known_knowledge:
+        mult *= FERTILIZER_MULT
+    return mult
+
+
 def _transmission_fidelity(speaker):
     """Best available channel fidelity for knowledge originating from `speaker`,
     combining independent channels (writing + oral) via redundant-channel recovery."""
@@ -226,6 +294,10 @@ class Cell:
     climate: str = 'temperate'
     leftover: float = 0.0  # Food left behind by residents (emergent storage)
     cultivation: float = 0.0  # Land improvement from sustained farming/grazing (0-1, decays if untended)
+    ag_tech_mult: float = 1.0  # Ratcheting energy-density ceiling for this plot (crop archetype x
+                                # irrigation x selective breeding x fertilizer); never decreases once
+                                # achieved — technique embedded in a plot's practice doesn't un-happen,
+                                # even though the *land's* cultivation level can still lapse if untended
 
     def passable(self):
         return self.terrain != 'lake'
@@ -420,10 +492,13 @@ def _spawn(rid, grid, tick, parent=None, partner=None):
         inherited_knowledge = {}
         parent_fidelity = _transmission_fidelity(parent) * random.uniform(0.85, 1.0)
         for kname, kdata in parent.known_knowledge.items():
+            # Copy the full entry (preserving extra fields like crop_type/livestock archetype
+            # that aren't part of the generic level/source/tick_learned shape) before overriding
             inherited_knowledge[kname] = {
+                **kdata,
                 'level': kdata['level'] * parent_fidelity,
                 'source': f'inherited_from_{parent.name}',
-                'tick_learned': tick
+                'tick_learned': tick,
             }
         if partner and partner.known_knowledge:
             # Also inherit from partner, taking the best version
@@ -432,12 +507,18 @@ def _spawn(rid, grid, tick, parent=None, partner=None):
                 if kname in inherited_knowledge:
                     # Take the better version
                     if kdata['level'] > inherited_knowledge[kname]['level']:
-                        inherited_knowledge[kname]['level'] = kdata['level'] * partner_fidelity
+                        inherited_knowledge[kname] = {
+                            **kdata,
+                            'level': kdata['level'] * partner_fidelity,
+                            'source': f'inherited_from_{partner.name}',
+                            'tick_learned': tick,
+                        }
                 else:
                     inherited_knowledge[kname] = {
+                        **kdata,
                         'level': kdata['level'] * partner_fidelity,
                         'source': f'inherited_from_{partner.name}',
-                        'tick_learned': tick
+                        'tick_learned': tick,
                     }
     else:
         while True:
@@ -669,20 +750,66 @@ def _do_forage(r, grid, tick, residents=None):
     farm_suit = TERRAIN_FARMING.get(cell.terrain, 0) * zone_cfg['farming_suitability']
     graze_suit = TERRAIN_GRAZING.get(cell.terrain, 0) * zone_cfg['grazing_suitability']
 
+    # Trying a wild variant is one roll; whether it actually becomes a stable domesticate
+    # is a second, independent roll (DOMESTICATION_SUCCESS_CHANCE) — most experiments with
+    # a promising wild plant/animal don't pan out, matching real domestication's high
+    # attrition rate. A failed attempt leaves no trace; the per-tick discovery roll keeps
+    # trying on subsequent ticks regardless.
     if farm_suit > 0 and 'crop_cultivation' not in r.known_knowledge:
         if random.random() < DOMESTICATION_DISCOVERY_CHANCE * farm_suit:
-            r.known_knowledge['crop_cultivation'] = {
-                'level': 0.15, 'source': 'experimented_with_planting', 'tick_learned': tick
-            }
-            r.skills['crop_cultivation'] = 15.0
-            discovery_msg = f'{r.name} discovered crop cultivation'
+            if random.random() < DOMESTICATION_SUCCESS_CHANCE:
+                crop_type = _pick_archetype(CROP_ARCHETYPES, cell.climate)
+                r.known_knowledge['crop_cultivation'] = {
+                    'level': 0.15, 'source': 'experimented_with_planting', 'tick_learned': tick,
+                    'crop_type': crop_type,
+                }
+                r.skills['crop_cultivation'] = 15.0
+                discovery_msg = f'{r.name} domesticated a {crop_type} crop'
     if graze_suit > 0 and 'animal_husbandry' not in r.known_knowledge:
         if random.random() < DOMESTICATION_DISCOVERY_CHANCE * graze_suit:
-            r.known_knowledge['animal_husbandry'] = {
-                'level': 0.15, 'source': 'experimented_with_herding', 'tick_learned': tick
-            }
-            r.skills['animal_husbandry'] = 15.0
-            discovery_msg = f'{r.name} discovered animal husbandry'
+            if random.random() < DOMESTICATION_SUCCESS_CHANCE:
+                livestock_type = _pick_archetype(LIVESTOCK_ARCHETYPES, cell.climate)
+                r.known_knowledge['animal_husbandry'] = {
+                    'level': 0.15, 'source': 'experimented_with_herding', 'tick_learned': tick,
+                    'crop_type': livestock_type,
+                }
+                r.skills['animal_husbandry'] = 15.0
+                discovery_msg = f'{r.name} domesticated {livestock_type} livestock'
+
+    # Agricultural technology ladder — irrigation, selective breeding, fertilizer/pesticides.
+    # Each is an independent Experiment-pathway discovery gated on a real prerequisite:
+    # irrigation needs water-adjacent land, breeding needs deep personal mastery (many
+    # seasons of practice), fertilizer needs writing (systematic record-keeping across
+    # seasons/generations is what makes agricultural science possible at all).
+    if (cell.water and 'crop_cultivation' in r.known_knowledge and 'irrigation' not in r.known_knowledge
+            and random.random() < IRRIGATION_DISCOVERY_CHANCE):
+        r.known_knowledge['irrigation'] = {
+            'level': 0.2, 'source': 'water_management_experience', 'tick_learned': tick
+        }
+        r.skills['irrigation'] = 20.0
+        discovery_msg = f'{r.name} developed irrigation'
+    if (r.skills.get('crop_cultivation', 0) >= BREEDING_SKILL_THRESHOLD
+            and 'selective_breeding' not in r.known_knowledge
+            and random.random() < BREEDING_DISCOVERY_CHANCE):
+        r.known_knowledge['selective_breeding'] = {
+            'level': 0.2, 'source': 'generations_of_seed_selection', 'tick_learned': tick
+        }
+        r.skills['selective_breeding'] = 20.0
+        discovery_msg = f'{r.name} began selectively breeding higher-yield crops'
+    if ('writing' in r.known_knowledge and 'selective_breeding' in r.known_knowledge
+            and 'fertilizer' not in r.known_knowledge
+            and random.random() < FERTILIZER_DISCOVERY_CHANCE):
+        r.known_knowledge['fertilizer'] = {
+            'level': 0.2, 'source': 'systematic_agricultural_science', 'tick_learned': tick
+        }
+        r.skills['fertilizer'] = 20.0
+        discovery_msg = f'{r.name} developed fertilizer and pest control'
+
+    # A cell's energy-density ceiling ratchets up to the best agricultural technology any
+    # farmer/herder working it has achieved, and never decreases — the technique embedded
+    # in how a plot is worked doesn't un-happen even if the land itself later lapses.
+    if farm_suit > 0 or graze_suit > 0:
+        cell.ag_tech_mult = max(cell.ag_tech_mult, _ag_tech_mult(r))
 
     # Tending the land — knowledge-holders raise the cell's cultivation level through
     # sustained work; skill itself deepens gradually through practice (learning by doing)
@@ -700,6 +827,13 @@ def _do_forage(r, grid, tick, residents=None):
             current = r.known_knowledge['animal_husbandry']['level']
             r.known_knowledge['animal_husbandry']['level'] = min(1.0, current + 0.02 * (1.0 - current))
             r.skills['animal_husbandry'] = r.known_knowledge['animal_husbandry']['level'] * 100
+
+    # Learning by doing for the higher agricultural tiers — same reinforcement pattern
+    for tier_skill in ('irrigation', 'selective_breeding', 'fertilizer'):
+        if tier_skill in r.known_knowledge and random.random() < 0.025:
+            current = r.known_knowledge[tier_skill]['level']
+            r.known_knowledge[tier_skill]['level'] = min(1.0, current + 0.02 * (1.0 - current))
+            r.skills[tier_skill] = r.known_knowledge[tier_skill]['level'] * 100
 
     # Harvest from biomass
     if cell.biomass > 0:
@@ -862,9 +996,10 @@ def _do_interact(r, target_id, residents, tick, pressure=0.0):
             fidelity = channel_fidelity * (0.5 + speaker_knowledge['level'] * 0.5)
             learned_level = speaker_knowledge['level'] * fidelity
             target.known_knowledge[knowledge_name] = {
+                **speaker_knowledge,
                 'level': learned_level,
                 'source': f'learned_from_{r.name}',
-                'tick_learned': tick
+                'tick_learned': tick,
             }
             target.skills[knowledge_name] = learned_level * 100
             if not event_msg:
@@ -977,14 +1112,18 @@ class Simulation:
 
         season = SEASONS[(tick // SEASON_LENGTH) % 4]
 
-        # Environment: biomass regrowth (zone-dependent season multiplier, cultivated land regrows faster)
+        # Environment: biomass regrowth (zone-dependent season multiplier, cultivated land
+        # regrows faster — scaled further by whatever agricultural technology tier that
+        # specific plot has ratcheted up to: crop/livestock archetype, irrigation,
+        # selective breeding, fertilizer)
         for row in self.grid:
             for c in row:
                 if c.biomass < c.biomass_cap:
                     m = c.season_mult(season)
-                    cultivation_bonus = 1.0 + c.cultivation * CULTIVATION_MAX_BONUS
+                    cultivation_bonus = 1.0 + c.cultivation * CULTIVATION_MAX_BONUS * c.ag_tech_mult
                     c.biomass = min(c.biomass_cap, c.biomass + TERRAIN[c.terrain]['regrow'] * m * cultivation_bonus)
-                # Untended land slowly reverts to wild (Law 10 Entropy)
+                # Untended land slowly reverts to wild (Law 10 Entropy) — cultivation LEVEL
+                # lapses, but ag_tech_mult (the technique itself) does not un-happen
                 if c.cultivation > 0:
                     c.cultivation = max(0.0, c.cultivation - CULTIVATION_DECAY)
 
@@ -999,7 +1138,7 @@ class Simulation:
                 if c.passable():
                     zone_cfg = CLIMATE_ZONES[c.climate]
                     avg_m = sum(zone_cfg[s] for s in SEASONS) / 4
-                    cultivation_bonus = 1.0 + c.cultivation * CULTIVATION_MAX_BONUS
+                    cultivation_bonus = 1.0 + c.cultivation * CULTIVATION_MAX_BONUS * c.ag_tech_mult
                     total_regrow += TERRAIN[c.terrain]['regrow'] * avg_m * cultivation_bonus
         # total_regrow is in biomass units; convert to kcal at the same base rate used when
         # biomass is actually foraged (see _do_forage) before comparing against per-person
@@ -1348,6 +1487,21 @@ class Simulation:
         clothing_holders = sum(1 for r in living if 'clothing_making' in r.known_knowledge)
         fire_holders = sum(1 for r in living if 'fire_making' in r.known_knowledge)
 
+        irrigation_holders = sum(1 for r in living if 'irrigation' in r.known_knowledge)
+        breeding_holders = sum(1 for r in living if 'selective_breeding' in r.known_knowledge)
+        fertilizer_holders = sum(1 for r in living if 'fertilizer' in r.known_knowledge)
+        crop_type_counts: dict[str, int] = {}
+        for r in living:
+            ct = r.known_knowledge.get('crop_cultivation', {}).get('crop_type')
+            if ct:
+                crop_type_counts[ct] = crop_type_counts.get(ct, 0) + 1
+        livestock_type_counts: dict[str, int] = {}
+        for r in living:
+            lt = r.known_knowledge.get('animal_husbandry', {}).get('crop_type')
+            if lt:
+                livestock_type_counts[lt] = livestock_type_counts.get(lt, 0) + 1
+        avg_ag_tech_mult = round(sum(c.ag_tech_mult for row in self.grid for c in row) / (GRID_W * GRID_H), 3)
+
         metrics = {
             'tick': tick,
             'season': season,
@@ -1379,6 +1533,12 @@ class Simulation:
             'clothing_holders': clothing_holders,
             'fire_holders': fire_holders,
             'avg_immunity': round(sum(r.traits.immunity for r in living) / max(1, n), 3),
+            'irrigation_holders': irrigation_holders,
+            'breeding_holders': breeding_holders,
+            'fertilizer_holders': fertilizer_holders,
+            'crop_types': crop_type_counts,
+            'livestock_types': livestock_type_counts,
+            'avg_ag_tech_mult': avg_ag_tech_mult,
         }
         self.metrics_history.append(metrics)
         if len(self.metrics_history) > 5000:

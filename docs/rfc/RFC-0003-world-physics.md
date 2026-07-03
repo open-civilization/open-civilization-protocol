@@ -310,9 +310,38 @@ Cells carry a `cultivation` state (0 to 1) representing sustained agricultural o
 
 A cell's effective terrain suitability is `terrain_suitability × zone_suitability`. Since tropical zone suitability is 0 for both activities, domestication cannot take hold there regardless of terrain — this is a physical constraint of the model, not a scripted gate.
 
-**Effect on productivity**: a cultivated cell's biomass regrowth is multiplied by `1 + cultivation × 7.0`, so land at full cultivation regenerates up to 8× faster than wild land of the same terrain. This bonus feeds directly into the carrying capacity formula (see above), so as cultivation spreads across a region, that region's sustainable population rises — this is the mechanism by which domestication multiplies a zone's baseline energy output, as opposed to a one-time unlock.
+**Effect on productivity**: a cultivated cell's biomass regrowth is multiplied by `1 + cultivation × 7.0 × ag_tech_mult`, so land at full cultivation and baseline technology regenerates up to 8× faster than wild land of the same terrain — before any further agricultural technology is layered on (see Agricultural Technology Ladder below). This bonus feeds directly into the carrying capacity formula (see above), so as cultivation spreads across a region, that region's sustainable population rises — this is the mechanism by which domestication multiplies a zone's baseline energy output, as opposed to a one-time unlock.
 
-**Entropy**: cultivation decays slowly when a cell is not actively worked, so abandoned farmland or pasture reverts toward wild land over time (RFC-0001 Law 10). Sustaining an improved landscape requires an ongoing, living population of knowledge-holders, not a permanent flag.
+**Entropy**: cultivation decays slowly when a cell is not actively worked, so abandoned farmland or pasture reverts toward wild land over time (RFC-0001 Law 10). Sustaining an improved landscape requires an ongoing, living population of knowledge-holders, not a permanent flag. `ag_tech_mult` (below) is the one exception: once a plot has been worked with a given technology, that ceiling never decreases — technique embedded in how land is worked doesn't un-happen even if the land itself later reverts to wild, only its realized cultivation level does.
+
+### Agricultural Technology Ladder
+
+Energy density per unit of cultivated land is not a single fixed multiplier — it is a growing ceiling (`Cell.ag_tech_mult`, starting at 1.0) that ratchets upward as a lineage or region accumulates real agricultural technology, mirroring the historical trajectory from early domestication through irrigation, selective breeding, and industrial-era fertilizer/pesticides (the "Green Revolution," the single largest jump in yield per area in human history). Each tier is discovered independently through the Experiment pathway (RFC-0006) and stacks multiplicatively.
+
+**1. Crop and livestock archetypes** (zoology/botany-flavored, assigned randomly on domestication): when `crop_cultivation` or `animal_husbandry` is first successfully domesticated, a specific archetype is chosen at random, weighted by climate zone — which staple a population ends up with is a random outcome of what was locally available to experiment with, not a designed choice:
+
+| Crop archetype | Energy density | Favored zone | Real-world analogy |
+|---|---|---|---|
+| Grain | 1.4× | Temperate | Wheat/rice/maize — dominant staples precisely because of superior caloric yield density |
+| Legume | 1.15× | Tropical/temperate | Secondary but versatile everywhere |
+| Tuber | 1.0× | Tropical | Bulkier, lower density per kg but reliable yield |
+
+| Livestock archetype | Energy density | Favored zone | Real-world analogy |
+|---|---|---|---|
+| Grazer | 1.1× | Cold | Cattle/sheep-type herding on open range |
+| Browser | 0.95× | Tropical | Goat-type mixed browsing |
+
+**2. Domestication is not guaranteed to succeed.** A "wild variant found" event (the existing discovery roll) only represents *trying* a promising plant or animal — most such attempts fail to become a stable, transmittable domesticate (of the world's ~200,000 plant species, only a few hundred were ever actually domesticated). A second, independent roll (45% chance) determines whether the attempt actually takes; a failure leaves no trace, and the underlying discovery roll keeps trying on subsequent ticks.
+
+**3. Further tiers, each gated on a real prerequisite:**
+
+| Tier | Requires | Multiplier | Rationale |
+|---|---|---|---|
+| Irrigation | `crop_cultivation` + water-adjacent cell | 1.5× | Water management requires cultivation to already exist and physical access to water |
+| Selective breeding | `crop_cultivation` skill ≥ 60 | 1.6× | Generations of choosing better seed/stock requires deep personal mastery, not a novice's first season |
+| Fertilizer/pesticides | `writing` + `selective_breeding` | 2.2× | Systematic agricultural science requires record-keeping across seasons and generations — this is deliberately gated behind writing, not population size or a tick count |
+
+A cell's `ag_tech_mult` ratchets up to the highest combination any farmer or herder working it has achieved (crop/livestock archetype × irrigation × breeding × fertilizer, each present or absent) and never decreases. At full stack this represents roughly a 50× yield ceiling over wild foraging of the same terrain (7.0 base cultivation bonus × up to 1.4 archetype × 1.5 irrigation × 1.6 breeding × 2.2 fertilizer) — in the same order of magnitude as the real historical gap between pre-agricultural foraging and industrial farming.
 
 ### Phase 1 Calibration
 
