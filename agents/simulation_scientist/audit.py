@@ -47,6 +47,7 @@ class RunSummary:
     seasonal_deaths: dict[str, int]
     knowledge_holders: dict[str, int]
     findings: list[Finding] = field(default_factory=list)
+    theory_findings: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -123,6 +124,17 @@ class AuditReport:
                 lines.append("")
             else:
                 lines.extend(["Findings:", "- none", ""])
+
+            if run.theory_findings:
+                lines.append("Theory-lens findings (real-world theory vs. observed behavior):")
+                for tf in run.theory_findings:
+                    lines.append(
+                        f"- [{tf['severity']}] **{tf['theory']}** ({tf['citation']})\n"
+                        f"  - predicts: {tf['prediction']}\n"
+                        f"  - observed: {tf['observed']}\n"
+                        f"  - gap: {tf['gap']}"
+                    )
+                lines.append("")
         return "\n".join(lines)
 
 
@@ -368,6 +380,12 @@ def _analyze_run(
             )
         )
 
+    try:
+        from .theories import run_theory_lenses
+        theory_findings = [f.to_dict() for f in run_theory_lenses(history, state)]
+    except Exception:  # noqa: BLE001 - theory lenses are best-effort, never block the audit
+        theory_findings = []
+
     return RunSummary(
         run_id=run_id,
         seed=seed,
@@ -382,6 +400,7 @@ def _analyze_run(
         seasonal_deaths=seasonal_deaths,
         knowledge_holders=knowledge_holders,
         findings=findings,
+        theory_findings=theory_findings,
     )
 
 

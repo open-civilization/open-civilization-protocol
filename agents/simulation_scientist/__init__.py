@@ -10,5 +10,8 @@ Two modes:
 """
 
 from .audit import analyze_live_experiment, build_report_from_live_runs, run_audit
+from .theories import run_theory_lenses
 
-__all__ = ["run_audit", "analyze_live_experiment", "build_report_from_live_runs"]
+__all__ = [
+    "run_audit", "analyze_live_experiment", "build_report_from_live_runs", "run_theory_lenses",
+]

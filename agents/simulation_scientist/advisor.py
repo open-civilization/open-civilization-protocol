@@ -45,55 +45,58 @@ NONE_PROPOSAL = Proposal(
 )
 
 
-def _extract_tunable_excerpt(engine_source: str, max_lines: int = 200) -> str:
-    """Pulls the module-level constants block from engine.py — this is the section
-    the advisor is expected to reason about for 'parameter' proposals. Falls back to
-    the first max_lines of the file if the expected markers aren't found."""
-    lines = engine_source.splitlines()
-    start_marker = "# ── Configuration ──"
-    end_marker = "def climate_zone"
-    start_idx = next((i for i, l in enumerate(lines) if start_marker in l), 0)
-    end_idx = next((i for i, l in enumerate(lines) if end_marker in l), min(len(lines), start_idx + max_lines))
-    return "\n".join(lines[start_idx:end_idx])
-
-
 def build_prompt(report: dict[str, Any], engine_source: str) -> str:
-    tunable_excerpt = _extract_tunable_excerpt(engine_source)
     findings_json = json.dumps(report.get("aggregate", {}), indent=2, ensure_ascii=False)
     run_findings = []
+    theory_findings = []
     for run in report.get("runs", []):
         for f in run.get("findings", []):
             run_findings.append({"run": run.get("run_id"), **f})
+        for tf in run.get("theory_findings", []):
+            theory_findings.append({"run": run.get("run_id"), **tf})
     per_run_json = json.dumps(run_findings, indent=2, ensure_ascii=False)
+    theory_json = json.dumps(theory_findings, indent=2, ensure_ascii=False)
 
     return f"""You are a simulation scientist studying an emergent-civilization sandbox (OCP).
 Residents forage, reproduce, age, and die under real physical constraints (climate, calories,
 population pressure). All knowledge (food storage, farming, herding, shelter, clothing, fire,
 language, writing) emerges only through in-world experience — nothing is scripted to unlock.
 
-Below is an audit report from one or more test runs, followed by the current tunable constants
-in the simulation engine.
+Below is an audit report: ad hoc heuristic findings, then "theory-lens" findings that compare
+observed behavior against named, citable real-world theories (Malthusian population dynamics,
+information theory, kin selection / inclusive fitness, collective action / tragedy of the
+commons, exchange economics) — these are the more important signal, since they tell you WHICH
+established theory the simulation is failing to reproduce and WHY, in terms of what the model
+does or doesn't represent. Ad hoc findings tell you something is off; theory findings tell you
+what real-world mechanism is missing or misapplied. Finally, the full current engine source.
 
-## Aggregate findings
+## Ad hoc heuristic findings (aggregate)
 {findings_json}
 
-## Per-run findings
+## Ad hoc heuristic findings (per run)
 {per_run_json}
 
-## Current tunable constants (engine.py, Configuration section)
+## Theory-lens findings (compare simulation to named real-world theory)
+{theory_json}
+
+## Full current engine source (engine.py)
 ```python
-{tunable_excerpt}
+{engine_source}
 ```
 
-Propose exactly ONE next experiment to run. Prefer adjusting a single existing constant
-("parameter") over changing logic ("code_edit") unless the findings clearly indicate a
-structural problem (e.g. a mechanic that can never fire, a double-counted cost, a formula
-that doesn't scale with something it should). Do not propose to "wait and see" — always
-propose a concrete, testable change.
+Propose exactly ONE next experiment to run. A theory-lens finding with a clear structural gap
+(e.g. "the model has no representation of X at the decision point where X should matter") is a
+strong signal to propose a "code_edit" that adds the missing mechanism, grounded in the cited
+theory — do not default to a parameter tweak just because it's simpler, if the finding says a
+mechanism is absent rather than miscalibrated. Prefer "parameter" only when the mechanism
+already exists and the finding is about its magnitude/threshold, not its existence. Do not
+propose to "wait and see" — always propose a concrete, testable change.
 
 If action is "code_edit", `old_string` MUST be an exact, minimal, UNIQUE substring of the
 named file as currently written (a diff-style anchor), and `new_string` is what it should
-become. Do not paraphrase the source; quote it exactly.
+become. Do not paraphrase the source; quote it exactly. Keep the edit as small as it can be
+while still being a real, working mechanism — do not propose multi-function refactors in one
+step; iterate.
 
 Respond with ONLY a JSON object, no other text, in this exact shape:
 {{
