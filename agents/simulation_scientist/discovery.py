@@ -61,13 +61,17 @@ Available data for a `compare(history, state)` function:
   gw, gh (grid width/height), terrain (list[str], one per cell, row-major),
   biomass (list[float], one per cell), leftover (list[float], one per cell),
   cultivation (list[float], one per cell), residents (list of per-resident
-  dicts: id, name, x, y, age, energy, health, gen, str, spd, per, end, soc,
-  risk, bonds (int count), children, skills (dict str->float),
-  knowledge (dict str->float level)), metrics (same shape as a history row).
+  dicts: id, name, x, y, age, energy, health, gen, parent_id (int or null —
+  the id of the resident this one was born to, or null for the founding
+  generation; two residents sharing a parent_id are siblings), str, spd,
+  per, end, soc, risk, bonds (int count), children, skills (dict
+  str->float), knowledge (dict str->float level)), metrics (same shape as
+  a history row).
 
-Note: Resident dicts from get_state() do NOT currently expose parent_id —
-if a lens needs kinship, treat that as a documented limitation in the gap
-rather than assuming the field is available.
+Note: individual bond targets/qualities and raid event details (who raided
+whom) are NOT exposed — only the aggregate bond count per resident. A lens
+needing that level of detail should treat it as a documented limitation in
+the gap rather than assuming the field is available.
 """
 
 

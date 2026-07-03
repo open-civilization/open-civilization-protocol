@@ -70,6 +70,19 @@ class LoopReport:
                          + (f" -> registered '{it.discovered_theory}'" if it.discovered_theory else ""))
             lines.append(f"- hypothesis: {it.proposal.get('hypothesis', '')}")
             lines.append(f"- action: {it.proposal.get('action', 'none')} — {it.proposal.get('rationale', '')}")
+            if it.proposal.get("action") == "parameter":
+                lines.append(f"  - parameter: {it.proposal.get('parameter_name')} = {it.proposal.get('parameter_value')}")
+            elif it.proposal.get("action") == "code_edit" and it.proposal.get("old_string"):
+                # Full old/new text so the actual diff is auditable from the report alone,
+                # not just the narrative hypothesis/rationale — the two can diverge.
+                lines.append("  - old_string:")
+                lines.append("    ```python")
+                lines.extend(f"    {ln}" for ln in it.proposal.get("old_string", "").splitlines())
+                lines.append("    ```")
+                lines.append("  - new_string:")
+                lines.append("    ```python")
+                lines.extend(f"    {ln}" for ln in it.proposal.get("new_string", "").splitlines())
+                lines.append("    ```")
             if it.apply_result:
                 lines.append(f"- applied: {it.apply_result.get('applied')} — {it.apply_result.get('message')}")
             lines.append("")

@@ -255,7 +255,16 @@ def apply_code_edit(file_path: Path, old_string: str, new_string: str) -> ApplyR
         return ApplyResult(applied=False, message=f"old_string is ambiguous ({count} occurrences) — refusing to apply.")
     new_source = source.replace(old_string, new_string, 1)
     file_path.write_text(new_source, encoding="utf-8")
-    return ApplyResult(applied=True, message="Code edit applied.")
+
+    # Post-write verification: re-read from disk and confirm the change actually landed.
+    # This exists because a silent mismatch here (claiming success without the file
+    # actually reflecting it) is worse than a loud failure — a human reviewing the loop
+    # report needs "applied: True" to be trustworthy, not just "the write call didn't
+    # raise."
+    written = file_path.read_text(encoding="utf-8")
+    if new_string not in written:
+        return ApplyResult(applied=False, message="Write completed but new_string is not present on re-read — treating as failed.")
+    return ApplyResult(applied=True, message="Code edit applied and verified on disk.")
 
 
 def apply_proposal(proposal: Proposal, engine_path: Path) -> ApplyResult:
@@ -266,6 +275,9 @@ def apply_proposal(proposal: Proposal, engine_path: Path) -> ApplyResult:
     if proposal.action == "code_edit":
         if not proposal.old_string or proposal.new_string is None:
             return ApplyResult(applied=False, message="Code-edit proposal missing old_string/new_string.")
-        target = engine_path if (proposal.file or "engine.py").endswith("engine.py") else engine_path
-        return apply_code_edit(target, proposal.old_string, proposal.new_string)
+        # Only engine.py is currently a valid target — the advisor is only ever shown
+        # engine.py's source, so any other file name in the proposal is untrustworthy.
+        if proposal.file and not proposal.file.endswith("engine.py"):
+            return ApplyResult(applied=False, message=f"Refusing to edit '{proposal.file}' — only engine.py is a supported code_edit target.")
+        return apply_code_edit(engine_path, proposal.old_string, proposal.new_string)
     return ApplyResult(applied=False, message="Proposal action is 'none' — nothing to apply.")

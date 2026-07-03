@@ -25,6 +25,7 @@ narrative complaint.
 
 from __future__ import annotations
 
+import random
 from dataclasses import asdict, dataclass, field
 from statistics import mean, pstdev
 from typing import Any, Callable, Optional
@@ -156,27 +157,56 @@ def _kin_selection_compare(history: list[dict[str, Any]], state: dict[str, Any])
     residents = state.get("residents", [])
     if len(residents) < 10:
         return None
-    # The engine does not currently expose kinship (parent_id / sibling structure) in
-    # get_state()'s per-resident payload, nor does the raid targeting logic reference
-    # relatedness at all (see decide()'s RAID block — it biases by bond quality/pressure,
-    # never by parent_id lineage). We can detect the STRUCTURAL absence directly: kinship
-    # is invisible to raiding, so no comparison can even be attempted, which is itself the
-    # finding — Hamilton's rule cannot be checked because the model has no representation
-    # of relatedness at the point where it should matter (the raid decision).
-    return TheoryFinding(
-        theory="Kin selection / inclusive fitness",
-        citation="Hamilton, The Genetical Evolution of Social Behaviour (1964)",
-        prediction="Exploitative behavior (raiding another resident for resources) should be measurably rarer "
-                   "between close genetic relatives (parent-child, siblings) than between unrelated strangers.",
-        observed={"kinship_tracked_in_raid_logic": False},
-        gap="Raid targeting (engine.py decide()) selects among adjacent residents using bond quality and "
-            "population pressure only. Genetic relatedness (available via Resident.parent_id, which siblings "
-            "and parent-child pairs share/link) is never consulted, so a starving resident is exactly as likely "
-            "to raid a parent or sibling as a total stranger. Hamilton's rule cannot currently produce any "
-            "effect in this model because the decision point has no access to relatedness at all.",
-        severity="high",
-        suggested_investigation="raid_target_selection, parent_id_lineage_lookup, relatedness_coefficient",
-    )
+    # `parent_id` is exposed in get_state(), so this can now be a genuine dynamic check
+    # rather than a static structural assertion: if kin-aware behavior exists anywhere in
+    # the model, close relatives (siblings sharing a parent_id, or parent-child pairs)
+    # should cluster spatially more than chance would predict, since conflict/competition
+    # would otherwise disperse them the same as any unrelated pair. This is an indirect
+    # proxy (raid events themselves and specific attacker/victim identity aren't exposed
+    # in the metrics/state schema), not a direct measurement of raid targeting.
+    by_parent: dict[Any, list[dict[str, Any]]] = {}
+    for r in residents:
+        pid = r.get("parent_id")
+        if pid is not None:
+            by_parent.setdefault(pid, []).append(r)
+    sibling_pairs = []
+    for siblings in by_parent.values():
+        for i in range(len(siblings)):
+            for j in range(i + 1, len(siblings)):
+                sibling_pairs.append((siblings[i], siblings[j]))
+    if len(sibling_pairs) < 5:
+        return None  # not enough sibling pairs yet to say anything meaningful
+
+    def _dist(a, b):
+        return abs(a.get("x", 0) - b.get("x", 0)) + abs(a.get("y", 0) - b.get("y", 0))
+
+    sibling_dist = mean(_dist(a, b) for a, b in sibling_pairs)
+    # Random-pair baseline: sample the same number of arbitrary pairs from the population
+    n = len(residents)
+    random_pairs = [(residents[random.randrange(n)], residents[random.randrange(n)]) for _ in range(len(sibling_pairs))]
+    random_dist = mean(_dist(a, b) for a, b in random_pairs if a is not b) or 1.0
+
+    if sibling_dist >= random_dist * 0.9:
+        return TheoryFinding(
+            theory="Kin selection / inclusive fitness",
+            citation="Hamilton, The Genetical Evolution of Social Behaviour (1964)",
+            prediction="Exploitative behavior (raiding another resident for resources) should be measurably rarer "
+                       "between close genetic relatives than between unrelated strangers, which should manifest "
+                       "indirectly as siblings/parent-child pairs clustering more closely than random pairs.",
+            observed={
+                "avg_sibling_pair_distance": round(sibling_dist, 2),
+                "avg_random_pair_distance": round(random_dist, 2),
+                "sibling_pairs_sampled": len(sibling_pairs),
+            },
+            gap="Sibling/parent-child pairs are no closer together than random pairs of residents — no "
+                "detectable kin-clustering signal. Raid targeting (engine.py decide()) selects among adjacent "
+                "residents using bond quality and population pressure only; genetic relatedness (available via "
+                "Resident.parent_id) may still not be consulted at the actual decision point, or if it is, its "
+                "effect isn't yet strong enough to produce a measurable spatial signature.",
+            severity="medium",
+            suggested_investigation="raid_target_selection, relatedness_coefficient, kin_clustering_strength",
+        )
+    return None
 
 
 # ── Lens 4: Tragedy of the commons / collective action ──
@@ -280,6 +310,60 @@ def _exchange_economics_compare(history: list[dict[str, Any]], state: dict[str, 
 # SEED_LENSES_END — discovery.py looks for this exact marker and inserts newly
 # discovered lenses (function definition + registration) directly above it, so the
 # lens library can grow without ever needing to touch the lenses defined above.
+def _risky_knowledge_drift_compare(history, state):
+    # extract the full list of knowledge_holder counts per tick
+    kh_list = [row['knowledge_holders'] for row in history]
+    if len(kh_list) < 10:
+        return None  # not enough data
+
+    # how many distinct skills are tracked? (approximate via max possible knowledge holders if all had all skills)
+    # from schema: knowledge_holders is count of residents holding at least one knowledge item?
+    # But we need a more precise: we want to see if a skill (any single skill) vanishes over time.
+    # Use farm_holders as a proxy for a specific, beneficial skill.
+    fh_list = [row.get('farmer_holders', 0) for row in history]
+    if max(fh_list) < 2:
+        return None  # too few holders to measure drift
+
+    # compute linear trend in farmer_holders over last half of history
+    n = len(fh_list)
+    half = n // 2
+    recent = fh_list[half:]
+    x = list(range(len(recent)))
+    # simple linear regression slope
+    mean_x = mean(x)
+    mean_y = mean(recent)
+    numerator = sum((xi - mean_x) * (yi - mean_y) for xi, yi in zip(x, recent))
+    denominator = sum((xi - mean_x)**2 for xi in x)
+    if denominator == 0:
+        return None
+    slope = numerator / denominator
+    # also compute volatility as coefficient of variation
+    cv = pstdev(recent) / mean_y if mean_y > 0 else 0
+
+    # test: if the skill is held by few (e.g., <10% of population latest) and slope is negative & significant
+    latest_pop = history[-1]['pop']
+    latest_fh = fh_list[-1]
+    if latest_pop <= 0:
+        return None
+    ratio = latest_fh / latest_pop
+    if ratio < 0.1 and slope < -0.01 and cv > 0.2:
+        # gap: cultural drift is eroding a beneficial skill
+        return TheoryFinding(
+            theory="Risky knowledge / extinction of beneficial traits",
+            citation="Henrich, The Secret of Our Success (2015); Boyd & Richerson, Culture and the Evolutionary Process (1985)",
+            prediction="A beneficial skill held by few should be vulnerable to stochastic loss, causing negative drift in holder count.",
+            observed={
+                'farmer_holder_slope': round(slope, 4),
+                'latest_farmer_holder_ratio': round(ratio, 4),
+                'cv_of_farmer_holders': round(cv, 3)
+            },
+            gap=f"Farmer-holders are a small fraction of the population (ratio={ratio:.3f}) but their count is drifting downward (slope={slope:.4f}) with high volatility (CV={cv:.3f}), consistent with stochastic extinction of a valuable skill. The model lacks a mechanism for high-fidelity social learning or memory that would preserve such traits when their bearers die.",
+            severity="medium",
+            suggested_investigation="knowledge_holder_mortality_rate, skill_transmission_fidelity, active_teaching_mechanics"
+        )
+    return None
+
+
 LENSES: list[TheoryLens] = [
     TheoryLens("Malthusian population dynamics", "Malthus (1798)",
                "Population oscillates around carrying capacity under growth/check dynamics.",
@@ -296,7 +380,10 @@ LENSES: list[TheoryLens] = [
     TheoryLens("Exchange economics / medium-of-exchange absence", "Jevons (1875)",
                "Without trade, local surplus and local scarcity coexist rather than equalizing.",
                _exchange_economics_compare),
-    # AUTO-DISCOVERED LENSES REGISTERED BELOW THIS LINE — appended by discovery.py
+        TheoryLens("Risky knowledge / extinction of beneficial traits (cultural drift & forgetting)", "Henrich, The Secret of Our Success (2015); Boyd & Richerson, Culture and the Evolutionary Process (1985)",
+               "When a beneficial skill (e.g., farming, herding, writing) is held by few individuals (low 'knowledge_ratio'), random death events should cause stochastic loss of that skill in the population, leading to a downward drift in the count of knowledge holders over time — especially at low population sizes.",
+               _risky_knowledge_drift_compare),
+# AUTO-DISCOVERED LENSES REGISTERED BELOW THIS LINE — appended by discovery.py
 ]
 
 

@@ -611,11 +611,24 @@ def decide(r, grid, residents, tick, pressure=0.0):
     if r.energy < 540 and here.biomass < 3 and here.leftover < 2:
         adjacent = [(res, d) for res, d in near_res if d <= 1 and res.energy > 900]
         if adjacent and random.random() < raid_base:
+            # Hamilton's rule: prefer raiding strangers over genetic relatives
+            # Compute relatedness via parent_id — siblings share a parent, parent-child share
+            def relatedness(a, b):
+                if a.parent_id is None or b.parent_id is None:
+                    return 0.0
+                if a.parent_id == b.id or b.parent_id == a.id:
+                    return 0.5  # parent-child
+                return 0.5 if a.parent_id == b.parent_id else 0.0  # full siblings
             strangers = [(res, d) for res, d in adjacent
-                         if res.id not in r.bonds or r.bonds[res.id].quality <= 0]
+                         if (res.id not in r.bonds or r.bonds[res.id].quality <= 0)
+                         and relatedness(r, res) < 0.25]
             # Below extreme pressure, prefer seizing from strangers over one's own
-            # established relationships; only true crisis (pressure >= 2.0) erodes that
+            # established relationships or kin; only true crisis (pressure >= 2.0) erodes that
+            # Raise pressure threshold for raiding relatives (kin discount per Hamilton's rule)
             pool = strangers if (strangers and pressure < 2.0) else adjacent
+            if pool is adjacent:
+                # Even among all adjacent, prefer lower-relatedness targets when pressure is moderate
+                pool.sort(key=lambda x: relatedness(r, x[0]))
             target = max(pool, key=lambda x: x[0].energy)[0]
             return ('raid', None, None, target.id)
 
@@ -1569,6 +1582,7 @@ class Simulation:
                 'id': r.id, 'name': r.name, 'x': r.x, 'y': r.y,
                 'age': r.age, 'energy': round(r.energy, 1),
                 'health': round(r.health, 1), 'gen': r.generation,
+                'parent_id': r.parent_id,
                 'str': round(r.traits.strength, 2),
                 'spd': round(r.traits.speed, 2),
                 'per': round(r.traits.perception, 2),
