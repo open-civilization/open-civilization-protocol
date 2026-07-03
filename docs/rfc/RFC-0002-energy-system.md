@@ -362,6 +362,25 @@ Phase 1 life simulation SHOULD include a minimal per-resident energy budget.
 
 This allows residents to face real tradeoffs between movement, work, risk, and rest.
 
+### Phase 1 Calibration — Caloric Units
+
+Phase 1 uses real kilocalorie (kcal) units for the individual energy budget, rather than an abstract 0-100 scale, so mortality thresholds are physically interpretable:
+
+| Quantity                    | Value        | Meaning |
+|------------------------------|--------------|---------|
+| Reserve capacity (`MAX_ENERGY`) | 3000 kcal   | Full, well-fed caloric reserve |
+| Erosion threshold             | 2000 kcal   | Below this, health begins to erode (graduated, not a cliff) |
+| Death-zone threshold          | 1500 kcal   | Below this, erosion becomes severe |
+| Baseline daily metabolic cost  | 60 kcal/tick (before season/technology modifiers) | Scales inversely with the endurance trait |
+
+Each simulation tick represents one full day-night cycle. Upkeep is computed as a day component and a night component (0.8× and 1.2× the season's multiplier respectively, averaging back to exactly the season multiplier), so that:
+
+- **Season** shapes the baseline multiplier applied to both day and night loss (winter is the dominant seasonal cost; other seasons carry mild, physically-motivated variation).
+- **Day/night** gives technologies a specific physical lever: fire reduces nighttime loss specifically (it does nothing about daytime heat); shelter reduces the season multiplier uniformly (it blocks exposure day and night); clothing reduces the resident's personal metabolic rate uniformly (it is worn constantly).
+- **Health erosion** is a direct, graduated function of the caloric reserve alone — there is no separate "cold damage" formula. Cold, hunger, and malnutrition all work through the same physical quantity.
+
+Foraging conversion (harvest → kcal) is calibrated so that a resident foraging under normal conditions comfortably sits above the 2000 kcal erosion threshold — "well-fed" is the achievable, common state, not a rare surplus. Dipping into the erosion or death bands should reflect genuine scarcity (winter, overpopulation, drought), not routine operation. See RFC-0004 Mortality Factors and RFC-0006 for how food storage, shelter, clothing, and fire knowledge each independently reduce these losses.
+
 ## Group and Settlement Energy Budget
 
 As coordination emerges, energy accounting SHOULD scale upward.
@@ -512,8 +531,8 @@ That is enough to make survival, migration, and local organization physically me
 
 ## Open Questions
 
-- What is the best internal unit for Phase 1 accounting?
-- Should food, fuel, and bodily reserves share one abstract energy unit or separate ones?
+- ~~What is the best internal unit for Phase 1 accounting?~~ Resolved: kilocalories (see Phase 1 Calibration above), for physical interpretability.
+- ~~Should food, fuel, and bodily reserves share one abstract energy unit or separate ones?~~ Resolved for Phase 1: bodily caloric reserve (`energy`, kcal) is distinct from standing biomass and leftover food caches (a separate matter-denominated currency converted to kcal only at the moment of consumption).
 - How much uncertainty should energy capture include?
 - When should storage quality become distinct from storage quantity?
 - What is the minimum group-store model needed before tribes emerge?

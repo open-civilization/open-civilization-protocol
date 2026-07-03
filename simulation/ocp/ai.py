@@ -182,11 +182,11 @@ def check_trigger(resident, nearby_residents, grid, tick):
             return 'first_contact', f"You see someone you have never met. They look {look} and are {dist} step(s) away."
 
     # Trigger 2: Resource crisis — hungry with no food nearby
-    if r.energy < 15 and here.biomass < 5:
+    if r.energy < 450 and here.biomass < 5:
         return 'crisis', "You are very hungry and there is almost no food here."
 
     # Trigger 3: Surplus reflection — well-fed, healthy, occasional
-    if r.energy > 85 and r.health > 85 and r.age > 15 and random.random() < 0.08:
+    if r.energy > 2550 and r.health > 85 and r.age > 15 and random.random() < 0.08:
         return 'surplus', "You feel well-fed and safe. You have a moment to think."
 
     # Trigger 4: Cultural moment — a resident who depends on the same people repeatedly
@@ -195,14 +195,14 @@ def check_trigger(resident, nearby_residents, grid, tick):
     # discovery of spoken_language/writing in engine.py is a deterministic rule keyed on
     # cooperation, repeated contact, and population pressure, and does not depend on this
     # trigger firing or on the AI being enabled at all.
-    if (len(r.bonds) >= 5 and r.energy > 50 and r.age > 15
+    if (len(r.bonds) >= 5 and r.energy > 1500 and r.age > 15
             and 'spoken_language' not in r.known_knowledge and random.random() < 0.05):
         return 'cultural_language', ("You rely on the same people again and again — to warn of danger, "
                                       "to share food, to help with the young. A cry or a grunt isn't "
                                       "enough anymore. You keep wanting a sound that always means the "
                                       "same thing.")
     if ('spoken_language' in r.known_knowledge and 'writing' not in r.known_knowledge
-            and len(r.known_knowledge) >= 3 and r.energy > 55 and random.random() < 0.05):
+            and len(r.known_knowledge) >= 3 and r.energy > 1650 and random.random() < 0.05):
         return 'cultural_writing', ("Your people now know more than any one person can hold in memory. "
                                      "Stories get told wrong. You wonder if marks on stone or wood could "
                                      "hold what memory loses.")
@@ -247,12 +247,12 @@ def build_prompt(resident, grid, nearby_cells, nearby_residents, trigger_text, t
     social = '\n'.join(social_lines) if social_lines else '  No one'
     personality = ', '.join(traits) if traits else 'unremarkable'
 
-    energy_desc = 'starving' if r.energy < 15 else 'hungry' if r.energy < 35 else 'adequate' if r.energy < 65 else 'well-fed'
+    energy_desc = 'starving' if r.energy < 450 else 'hungry' if r.energy < 1050 else 'adequate' if r.energy < 1950 else 'well-fed'
     health_desc = 'injured' if r.health < 40 else 'tired' if r.health < 70 else 'healthy'
 
     header = f"""You are {r.name}. You live in a wild world. You know nothing about Earth or human history — only what you have seen and been told.
 
-State: {energy_desc} (energy {r.energy:.0f}/100), {health_desc} (health {r.health:.0f}/100), age {r.age}
+State: {energy_desc} (energy {r.energy:.0f}/3000 kcal), {health_desc} (health {r.health:.0f}/100), age {r.age}
 Where: ({r.x},{r.y}) on {here.terrain}
 Personality: {personality}
 

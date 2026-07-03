@@ -18,12 +18,17 @@ GRID_H = 80
 INITIAL_POPULATION = 55  # Seeded near total baseline carrying capacity (~5 cold + 10 temperate + 40 tropical)
 MAX_AGE = 100  # theoretical ceiling; nutritional history determines who actually approaches it
 REPRODUCTION_AGE = 13
-REPRODUCTION_ENERGY = 55
-REPRODUCTION_COST = 25
-OFFSPRING_ENERGY = 20
-BASELINE_ENERGY_COST = 2.0
+
+# ── Energy Model (kcal) ──
+# `energy` is a resident's caloric reserve, modeled in real kilocalorie units so mortality
+# thresholds are physically interpretable rather than an abstract 0-100 scale. A tick
+# represents one full day-night cycle; each tick deducts one day's net caloric loss.
+MAX_ENERGY = 3000.0             # full caloric reserve — "well-fed" baseline
+REPRODUCTION_ENERGY = 1650.0    # reserve required (55% of max) before reproduction is attempted
+REPRODUCTION_COST = 750.0       # reserve spent per parent per birth
+OFFSPRING_ENERGY = 600.0        # newborn starting reserve
+BASELINE_ENERGY_COST = 60.0     # baseline daily metabolic burn before season/technology modifiers
 PERCEPTION_BASE_RADIUS = 3
-MAX_ENERGY = 100.0
 MAX_HEALTH = 100.0
 SEASON_LENGTH = 8
 MEMORY_CAPACITY = 50
@@ -48,14 +53,12 @@ CONFLICT_DMG_MAX = 25
 TERRAIN_HAZARD = {'mountain': 0.06, 'river': 0.04, 'desert': 0.04, 'coast': 0.01}
 HAZARD_DMG_MIN = 5
 HAZARD_DMG_MAX = 20
-WINTER_COLD_THRESHOLD = 30
-WINTER_COLD_DMG = 8
 ACCIDENT_CHANCE = 0.003
 ACCIDENT_DMG_MIN = 8
-NUTRITION_STRESS_ENERGY = 30    # below this, chronic malnutrition debt accumulates
-NUTRITION_RECOVERY_ENERGY = 65  # above this, malnutrition debt slowly heals
-NUTRITION_DEBT_RATE = 0.5       # debt gained per tick while chronically hungry
-NUTRITION_RECOVERY_RATE = 0.15  # debt healed per tick while reliably well-fed
+NUTRITION_STRESS_ENERGY = 900    # below this (30% of max), chronic malnutrition debt accumulates
+NUTRITION_RECOVERY_ENERGY = 1950 # above this (65% of max), malnutrition debt slowly heals
+NUTRITION_DEBT_RATE = 0.5        # debt gained per tick while chronically hungry
+NUTRITION_RECOVERY_RATE = 0.15   # debt healed per tick while reliably well-fed
 NUTRITION_DEBT_CAP = 100.0      # debt ceiling
 AGE_DECLINE_ONSET = 30          # age decline can begin this early if malnourished
 AGE_DECLINE_SPAN = 60           # a well-fed resident's decline stretches across this many years
@@ -77,15 +80,20 @@ SEASONS = ['spring', 'summer', 'autumn', 'winter']
 # Non-winter multipliers set high to ensure baseline viability (40 tropical, 10 temperate, 5 cold)
 # Winter multipliers set low to create a seasonal bottleneck, but not automatic extinction —
 # knowledge softens the bottleneck, absence of knowledge means higher (not total) mortality
+#
+# `*_upkeep` fields are per-season caloric burn multipliers (independent from the plain season
+# fields above, which govern food regrowth, not personal metabolism). Non-winter multipliers
+# stay close to 1.0 — mild, physically-motivated variation — so the extensively-tuned baseline
+# survivability is preserved; winter carries the dominant seasonal cost as before.
 CLIMATE_ZONES = {
     'cold':      {'spring': 1.1, 'summer': 0.8, 'autumn': 0.35, 'winter': 0.005,
-                  'winter_upkeep': 2.8, 'cold_threshold': 50, 'cold_dmg': 14,
+                  'spring_upkeep': 0.95, 'summer_upkeep': 1.0, 'autumn_upkeep': 1.1, 'winter_upkeep': 2.8,
                   'grazing_suitability': 1.0, 'farming_suitability': 0.1},
     'temperate': {'spring': 1.4, 'summer': 1.0, 'autumn': 0.55, 'winter': 0.02,
-                  'winter_upkeep': 1.8, 'cold_threshold': 35, 'cold_dmg': 9,
+                  'spring_upkeep': 0.9, 'summer_upkeep': 1.0, 'autumn_upkeep': 1.05, 'winter_upkeep': 1.8,
                   'grazing_suitability': 0.25, 'farming_suitability': 1.0},
     'tropical':  {'spring': 1.2, 'summer': 1.0, 'autumn': 0.75, 'winter': 0.05,
-                  'winter_upkeep': 1.3, 'cold_threshold': 20, 'cold_dmg': 4,
+                  'spring_upkeep': 0.9, 'summer_upkeep': 1.05, 'autumn_upkeep': 1.0, 'winter_upkeep': 1.3,
                   'grazing_suitability': 0.0, 'farming_suitability': 0.0},
 }
 
@@ -104,12 +112,33 @@ CULTIVATION_DECAY = 0.0002  # cultivation lost per tick when not actively tended
 CULTIVATION_MAX_BONUS = 7.0  # at cultivation=1.0, regrow is multiplied by (1 + this) — real farmland
                               # vastly outproduces wild foraging per unit area
 
-# Shelter and clothing — Experiment pathway triggered by direct cold exposure (energy below
-# the zone's cold_threshold). Colder zones expose residents to this condition constantly,
-# so these technologies emerge first and fastest exactly where they matter — no zone gate
-# is needed beyond the cold-exposure condition itself, unlike domestication.
-SHELTER_DISCOVERY_CHANCE = 0.05   # per winter tick of direct cold exposure
-CLOTHING_DISCOVERY_CHANCE = 0.05  # per winter tick of direct cold exposure
+# ── Caloric Health Model ──
+# Cold, hunger, and technology are unified through a single physical quantity: how many
+# kcal a resident has in reserve. There is no separate "cold damage" formula — cold works
+# entirely by raising caloric burn rate (below), and health only erodes as a direct,
+# graduated consequence of the caloric reserve itself dropping through two real thresholds.
+CALORIE_EROSION_THRESHOLD = 2000.0  # below this, health begins to erode (graduated)
+CALORIE_DEATH_ZONE = 1500.0         # below this, erosion becomes severe
+HEALTH_EROSION_RATE = 1.5           # health/tick at full deficit within the erosion band (2000->0)
+DEATH_ZONE_RATE = 8.0               # additional health/tick at full deficit within the death band (1500->0)
+
+# Day/night split: each tick is one full day-night cycle. Night loss and day loss are
+# weighted equally (0.5/0.5) so their average exactly equals the season's upkeep multiplier
+# — this preserves prior calibration exactly while giving fire a specific, physically
+# sensible lever (fire helps at night; it does nothing about daytime heat).
+DAY_LOSS_FACTOR = 0.8
+NIGHT_LOSS_FACTOR = 1.2
+
+# Shelter, clothing, and fire — Experiment pathway triggered by direct caloric crisis
+# (reserve in the death-zone band). Colder zones and seasons push residents into this
+# state far more often, so these technologies emerge first and fastest exactly where they
+# matter — no separate zone gate is needed beyond the caloric-crisis condition itself.
+SHELTER_DISCOVERY_CHANCE = 0.05   # per winter tick spent in caloric crisis
+CLOTHING_DISCOVERY_CHANCE = 0.05  # per winter tick spent in caloric crisis
+FIRE_DISCOVERY_CHANCE = 0.04      # per winter tick spent in caloric crisis
+SHELTER_UPKEEP_REDUCTION = 0.3    # shelter blunts environmental exposure, day and night
+CLOTHING_UPKEEP_REDUCTION = 0.25  # clothing reduces personal metabolic loss, uniformly
+FIRE_NIGHT_REDUCTION = 0.4        # fire specifically offsets the amplified nighttime loss
 
 # ── Knowledge Transmission Channels (information-theoretic channel model) ──
 # Cross-individual and cross-generation knowledge transfer is modeled as a lossy channel.
@@ -149,7 +178,7 @@ LANGUAGE_COOPERATION_BONUS = 4.0     # multiplier when the interaction was an ac
 # storage records, and land/name tracking, not literature.
 WRITING_DISCOVERY_CHANCE = 0.003     # per qualifying tick
 WRITING_COMPLEXITY_THRESHOLD = 3     # distinct knowledge domains needed to motivate a record
-WRITING_ENERGY_THRESHOLD = 55        # writing requires surplus, not survival-mode scarcity
+WRITING_ENERGY_THRESHOLD = 1650      # writing requires surplus, not survival-mode scarcity
 WRITING_GROUP_SIZE = 3               # writing serves a larger, more organized group than language alone
 WRITING_PRESSURE_THRESHOLD = 0.9     # society has grown to fill its available capacity
 
@@ -417,7 +446,7 @@ def _spawn(rid, grid, tick, parent=None, partner=None):
                 break
         traits = Traits.random()
         gen, pid = 0, None
-        nrg = random.uniform(65, 90)
+        nrg = random.uniform(1950, 2700)
         inherited_knowledge = {}
 
     child = Resident(rid, _rand_name(), x, y, 0, nrg, MAX_HEALTH, traits,
@@ -476,11 +505,11 @@ def decide(r, grid, residents, tick, pressure=0.0):
     season = SEASONS[(tick // SEASON_LENGTH) % 4]
 
     # SCAVENGE: Pick up leftover food if hungry (highest priority when available)
-    if r.energy < 50 and here.leftover > 3:
+    if r.energy < 1500 and here.leftover > 3:
         return ('scavenge', None, None, None)
 
     # DESPERATE: raid nearby cells for leftover food (no killing needed)
-    if r.energy < 25 and here.biomass < 2 and here.leftover < 2:
+    if r.energy < 750 and here.biomass < 2 and here.leftover < 2:
         # Look for nearby cells with leftovers
         cells = _nearby_cells(r.x, r.y, 2, grid)
         leftover_cells = [(c, d) for c, d in cells if c.leftover > 5 and d > 0]
@@ -498,8 +527,8 @@ def decide(r, grid, residents, tick, pressure=0.0):
     if pressure > 1.2:
         raid_base += 0.25 * (pressure - 1.2)
 
-    if r.energy < 18 and here.biomass < 3 and here.leftover < 2:
-        adjacent = [(res, d) for res, d in near_res if d <= 1 and res.energy > 30]
+    if r.energy < 540 and here.biomass < 3 and here.leftover < 2:
+        adjacent = [(res, d) for res, d in near_res if d <= 1 and res.energy > 900]
         if adjacent and random.random() < raid_base:
             strangers = [(res, d) for res, d in adjacent
                          if res.id not in r.bonds or r.bonds[res.id].quality <= 0]
@@ -510,7 +539,7 @@ def decide(r, grid, residents, tick, pressure=0.0):
             return ('raid', None, None, target.id)
 
     # MIGRATE (winter): move to a warmer zone when the cold itself is the acute threat
-    if r.energy < 30 and season == 'winter' and climate_zone(r.y) != 'tropical':
+    if r.energy < 900 and season == 'winter' and climate_zone(r.y) != 'tropical':
         if r.y > 52:  # Already in tropical
             pass
         elif r.y > 26:  # In temperate, move toward tropical
@@ -525,7 +554,7 @@ def decide(r, grid, residents, tick, pressure=0.0):
     # compete for the same depleted local patch. This is expansion into unclaimed
     # territory as a release valve, not a scripted settlement mechanic: the resident
     # simply moves toward the best food it can see within a wider search radius.
-    if pressure > 1.3 and r.energy < 55 and random.random() < 0.12:
+    if pressure > 1.3 and r.energy < 1650 and random.random() < 0.12:
         wide_cells = _nearby_cells(r.x, r.y, radius + 4, grid)
         far_candidates = [(c, d) for c, d in wide_cells if d > radius and c.biomass > 15]
         if far_candidates:
@@ -533,7 +562,7 @@ def decide(r, grid, residents, tick, pressure=0.0):
             return _step_toward(r.x, r.y, target_cell.x, target_cell.y, grid)
 
     # CRITICAL / HUNGRY: find food
-    if r.energy < 40:
+    if r.energy < 1200:
         if here.biomass > 3:
             return ('forage', None, None, None)
         best = _best_food(cells)
@@ -542,7 +571,7 @@ def decide(r, grid, residents, tick, pressure=0.0):
         return _random_move(r, grid)
 
     # INJURED: rest
-    if r.health < 50 and r.energy > 20:
+    if r.health < 50 and r.energy > 600:
         return ('rest', None, None, None)
 
     # REPRODUCE — fertility drops under Malthusian pressure
@@ -564,7 +593,7 @@ def decide(r, grid, residents, tick, pressure=0.0):
             return ('interact', None, None, t.id)
 
     # FORAGE if not full
-    if r.energy < 80 and here.biomass > 10:
+    if r.energy < 2400 and here.biomass > 10:
         return ('forage', None, None, None)
 
     # EXPLORE
@@ -613,7 +642,7 @@ def _do_move(r, tx, ty, grid):
     cell = grid[ty][tx]
     if not cell.passable():
         return None
-    cost = TERRAIN[cell.terrain]['move'] / r.traits.speed
+    cost = TERRAIN[cell.terrain]['move'] / r.traits.speed * 30.0  # kcal per movement action
     if r.energy >= cost:
         r.energy -= cost
         r.x, r.y = tx, ty
@@ -675,16 +704,21 @@ def _do_forage(r, grid, tick, residents=None):
     # Harvest from biomass
     if cell.biomass > 0:
         harvest = min(cell.biomass, 15 * r.traits.strength) * random.uniform(0.5, 1.0)
-        effort = 0.5 / r.traits.endurance
+        effort = 15.0 / r.traits.endurance  # caloric cost of the labor itself
         cell.biomass -= harvest
 
         # Domestication conversion efficiency — better technique extracts more usable energy
         # from the same harvested biomass (does not exceed what was actually taken from the land)
-        conversion = 0.8
+        # Base conversion is kcal yielded per unit of biomass harvested. Calibrated so a
+        # resident foraging normally sits comfortably above the 2000 kcal erosion threshold
+        # (i.e. "well-fed" is the achievable norm, not a rare surplus state) — dipping into
+        # the erosion/death bands should reflect genuine scarcity (winter, overpopulation),
+        # not routine operation.
+        conversion = 38.0
         if farm_suit > 0 and 'crop_cultivation' in r.known_knowledge:
-            conversion += r.skills.get('crop_cultivation', 0) / 100.0 * farm_suit * 0.5
+            conversion += r.skills.get('crop_cultivation', 0) / 100.0 * farm_suit * 20.0
         if graze_suit > 0 and 'animal_husbandry' in r.known_knowledge:
-            conversion += r.skills.get('animal_husbandry', 0) / 100.0 * graze_suit * 0.5
+            conversion += r.skills.get('animal_husbandry', 0) / 100.0 * graze_suit * 20.0
         gain = harvest * conversion
         r.energy = min(MAX_ENERGY, r.energy + gain - effort)
         r.food_total += harvest
@@ -700,7 +734,7 @@ def _do_forage(r, grid, tick, residents=None):
     # Resource conflict — competition over scarce food
     if residents and cell.biomass < 15:
         rivals = [o for o in residents if o.alive and o.id != r.id
-                  and o.x == r.x and o.y == r.y and o.energy < 35]
+                  and o.x == r.x and o.y == r.y and o.energy < 1050]
         if rivals and random.random() < CONFLICT_CHANCE:
             rival = random.choice(rivals)
             r_power = r.traits.strength * random.uniform(0.7, 1.3)
@@ -723,11 +757,14 @@ def _do_scavenge(r, grid):
     if cell.leftover <= 0:
         return None
 
-    scavenged = min(cell.leftover * 0.7, MAX_ENERGY - r.energy)
-    cell.leftover -= scavenged
-    r.energy = min(MAX_ENERGY, r.energy + scavenged)
+    # leftover is denominated in biomass units, like cell.biomass — convert to kcal at
+    # the same base rate used when the biomass was originally foraged (see _do_forage)
+    biomass_taken = min(cell.leftover * 0.7, (MAX_ENERGY - r.energy) / 38.0)
+    scavenged_kcal = biomass_taken * 38.0
+    cell.leftover -= biomass_taken
+    r.energy = min(MAX_ENERGY, r.energy + scavenged_kcal)
 
-    return f'{r.name} scavenged {scavenged:.0f} food from leftovers'
+    return f'{r.name} scavenged {scavenged_kcal:.0f} kcal from leftovers'
 
 
 def _maybe_discover_language(r, target, tick, pressure, cooperative=False):
@@ -780,8 +817,8 @@ def _do_interact(r, target_id, residents, tick, pressure=0.0):
 
     # Share food if one is hungry — this is the highest-signal cooperative act available:
     # a real payoff exchanged between two individuals, not just proximity or small talk.
-    if r.energy > 60 and target.energy < 30 and r.traits.sociability > 0.4:
-        share = min(15, r.energy - 50)
+    if r.energy > 1800 and target.energy < 900 and r.traits.sociability > 0.4:
+        share = min(450, r.energy - 1500)
         r.energy -= share
         target.energy = min(MAX_ENERGY, target.energy + share * 0.9)
         r.bonds[target.id].quality = min(1.0, r.bonds[target.id].quality + 0.2)
@@ -888,7 +925,7 @@ def _do_raid(r, target_id, residents, tick):
     t_power = target.traits.strength * random.uniform(0.6, 1.4)
 
     if r_power > t_power:
-        stolen = min(target.energy * 0.4, 20)
+        stolen = min(target.energy * 0.4, 600)
         target.energy -= stolen
         r.energy = min(MAX_ENERGY, r.energy + stolen * 0.8)
         target.health -= random.uniform(5, 18)
@@ -964,7 +1001,10 @@ class Simulation:
                     avg_m = sum(zone_cfg[s] for s in SEASONS) / 4
                     cultivation_bonus = 1.0 + c.cultivation * CULTIVATION_MAX_BONUS
                     total_regrow += TERRAIN[c.terrain]['regrow'] * avg_m * cultivation_bonus
-        carrying_cap = max(10, total_regrow / (BASELINE_ENERGY_COST * 8.0))
+        # total_regrow is in biomass units; convert to kcal at the same base rate used when
+        # biomass is actually foraged (see _do_forage) before comparing against per-person
+        # daily kcal need, so this ratio stays dimensionally consistent with the energy model
+        carrying_cap = max(10, (total_regrow * 38.0) / (BASELINE_ENERGY_COST * 8.0))
         pop = len(living)
         self._pressure = pop / max(1, carrying_cap)
 
@@ -1011,47 +1051,59 @@ class Simulation:
                 continue
             r.age += 1
 
-            # Upkeep — zone-dependent winter multiplier, reduced by food storage and clothing
-            cost = r.upkeep()
+            # Upkeep — one tick's day-night caloric burn, shaped by season, zone, and
+            # whichever cold-mitigation technologies this resident knows. Day and night
+            # loss are computed separately (see DAY_LOSS_FACTOR/NIGHT_LOSS_FACTOR) so fire
+            # can target nighttime loss specifically while shelter blunts both uniformly.
             zone_cfg = CLIMATE_ZONES[climate_zone(r.y)]
-            if season == 'winter':
-                storage_skill = r.skills.get('food_storage', 0) / 100.0
-                clothing_skill = r.skills.get('clothing_making', 0) / 100.0
-                # Stored food and insulating clothing both soften winter upkeep; independent
-                # reductions combine multiplicatively (neither alone reaches the other's ceiling)
-                food_reduction = 1.0 - storage_skill * 0.3
-                clothing_reduction = 1.0 - clothing_skill * 0.35
-                effective_upkeep = zone_cfg['winter_upkeep'] * food_reduction * clothing_reduction
-                cost *= effective_upkeep
+            season_upkeep = zone_cfg[f'{season}_upkeep']
+            storage_skill = r.skills.get('food_storage', 0) / 100.0
+            clothing_skill = r.skills.get('clothing_making', 0) / 100.0
+            shelter_skill = r.skills.get('shelter_building', 0) / 100.0
+            fire_skill = r.skills.get('fire_making', 0) / 100.0
+
+            effective_season_upkeep = season_upkeep * (1.0 - shelter_skill * SHELTER_UPKEEP_REDUCTION)
+            day_mult = effective_season_upkeep * DAY_LOSS_FACTOR
+            night_mult = effective_season_upkeep * NIGHT_LOSS_FACTOR * (1.0 - fire_skill * FIRE_NIGHT_REDUCTION)
+            daily_mult = (day_mult + night_mult) / 2.0
+
+            cost = r.upkeep() * daily_mult
+            # Stored food and insulating clothing both reduce personal metabolic burn further
+            cost *= (1.0 - storage_skill * 0.3) * (1.0 - clothing_skill * CLOTHING_UPKEEP_REDUCTION)
             r.energy -= cost
+            if r.energy < 0:
+                r.energy = 0
 
             # Population pressure multiplier — mild below capacity, brutal above
             pressure_mult = max(1.0, self._pressure ** 2)
-
-            # Starvation — amplified by pressure (less food per person)
-            if r.energy <= 0:
-                r.energy = 0
-                r.health -= 5 * pressure_mult
 
             # Malnutrition — everyone suffers when resources are overstretched
             if self._pressure > 1.0:
                 malnutrition = 5.0 * (self._pressure - 1.0) ** 2
                 r.health -= malnutrition
 
-            # Winter exposure — zone-dependent cold damage, blunted by shelter
-            cold_thr = zone_cfg['cold_threshold']
-            cold_dmg = zone_cfg['cold_dmg']
-            if season == 'winter' and cold_thr > 0 and r.energy < cold_thr:
-                shelter_skill = r.skills.get('shelter_building', 0) / 100.0
-                effective_cold_dmg = cold_dmg * (1.0 - shelter_skill * 0.6)
-                r.health -= effective_cold_dmg * (1.0 - r.energy / cold_thr)
+            # Caloric health erosion — health erodes as a direct, graduated consequence of
+            # the caloric reserve dropping through two real thresholds (3000 kcal baseline,
+            # erosion below 2000, severe below 1500). There is no separate "cold damage":
+            # cold works entirely through the upkeep multiplier above, which drives the
+            # reserve down into these bands faster in harsh zones/seasons.
+            in_crisis = r.energy < CALORIE_DEATH_ZONE
+            recovering = r.energy > CALORIE_EROSION_THRESHOLD
+            if r.energy < CALORIE_EROSION_THRESHOLD:
+                deficit = (CALORIE_EROSION_THRESHOLD - r.energy) / CALORIE_EROSION_THRESHOLD
+                r.health -= HEALTH_EROSION_RATE * deficit * pressure_mult
+            if in_crisis:
+                severe_deficit = (CALORIE_DEATH_ZONE - r.energy) / CALORIE_DEATH_ZONE
+                r.health -= DEATH_ZONE_RATE * severe_deficit * pressure_mult
 
-            # Winter: near-starvation drives knowledge discovery and reinforcement
+            # Winter: caloric crisis drives knowledge discovery and reinforcement — the
+            # same physical state (severe caloric deficit) that food storage, shelter,
+            # clothing, and fire all independently address, each in a different way.
             if season == 'winter':
-                # Starvation discovery: residents who nearly starve (energy < 10) may learn
-                # from painful experience, only if they don't already know
-                if r.energy < 10 and 'food_storage' not in r.known_knowledge:
-                    if random.random() < 0.08:  # 8% chance per winter tick of near-starvation
+                # Starvation discovery: residents in caloric crisis may learn from painful
+                # experience, only if they don't already know
+                if in_crisis and 'food_storage' not in r.known_knowledge:
+                    if random.random() < 0.08:
                         r.known_knowledge['food_storage'] = {
                             'level': 0.2,
                             'source': 'desperate_winter_experience',
@@ -1061,29 +1113,25 @@ class Simulation:
                         evts.append({'tick': tick, 'type': 'discovery',
                                      'text': f'{r.name} learned food storage through winter hardship',
                                      'x': r.x, 'y': r.y})
-
-                # Knowledge reinforcement: experienced residents with knowledge may improve
-                # through successful winter survival
-                elif r.energy > 15 and 'food_storage' in r.known_knowledge and random.random() < 0.06:
+                elif recovering and 'food_storage' in r.known_knowledge and random.random() < 0.06:
                     current = r.known_knowledge['food_storage']['level']
                     improvement = 0.04 + (0.04 * (1.0 - current))
                     r.known_knowledge['food_storage']['level'] = min(1.0, current + improvement)
                     r.skills['food_storage'] = r.known_knowledge['food_storage']['level'] * 100
 
-                # Shelter discovery — Experiment pathway: repeated direct cold-exposure damage
-                # (energy below the zone's cold threshold) motivates building windbreaks/shelter.
-                # Colder zones expose residents to this condition far more often, so shelter
-                # naturally emerges first and fastest where it matters most.
-                if (r.energy < cold_thr and 'shelter_building' not in r.known_knowledge
+                # Shelter discovery — Experiment pathway: repeated caloric crisis motivates
+                # building windbreaks/shelter. Colder zones and seasons push residents into
+                # crisis far more often, so shelter naturally emerges first where it matters.
+                if (in_crisis and 'shelter_building' not in r.known_knowledge
                         and random.random() < SHELTER_DISCOVERY_CHANCE):
                     r.known_knowledge['shelter_building'] = {
-                        'level': 0.2, 'source': 'cold_exposure_experience', 'tick_learned': tick
+                        'level': 0.2, 'source': 'caloric_crisis_experience', 'tick_learned': tick
                     }
                     r.skills['shelter_building'] = 20.0
                     evts.append({'tick': tick, 'type': 'discovery',
                                  'text': f'{r.name} learned to build shelter against the cold',
                                  'x': r.x, 'y': r.y})
-                elif (r.energy >= cold_thr and 'shelter_building' in r.known_knowledge
+                elif (recovering and 'shelter_building' in r.known_knowledge
                         and random.random() < 0.05):
                     current = r.known_knowledge['shelter_building']['level']
                     r.known_knowledge['shelter_building']['level'] = min(1.0, current + 0.04 * (1.0 - current))
@@ -1091,20 +1139,38 @@ class Simulation:
 
                 # Clothing discovery — same Experiment pathway, independent invention from
                 # shelter (a resident may find one, the other, or both over time)
-                if (r.energy < cold_thr and 'clothing_making' not in r.known_knowledge
+                if (in_crisis and 'clothing_making' not in r.known_knowledge
                         and random.random() < CLOTHING_DISCOVERY_CHANCE):
                     r.known_knowledge['clothing_making'] = {
-                        'level': 0.2, 'source': 'cold_exposure_experience', 'tick_learned': tick
+                        'level': 0.2, 'source': 'caloric_crisis_experience', 'tick_learned': tick
                     }
                     r.skills['clothing_making'] = 20.0
                     evts.append({'tick': tick, 'type': 'discovery',
                                  'text': f'{r.name} learned to make warm clothing',
                                  'x': r.x, 'y': r.y})
-                elif (r.energy >= cold_thr and 'clothing_making' in r.known_knowledge
+                elif (recovering and 'clothing_making' in r.known_knowledge
                         and random.random() < 0.05):
                     current = r.known_knowledge['clothing_making']['level']
                     r.known_knowledge['clothing_making']['level'] = min(1.0, current + 0.04 * (1.0 - current))
                     r.skills['clothing_making'] = r.known_knowledge['clothing_making']['level'] * 100
+
+                # Fire discovery — same Experiment pathway; effect specifically targets the
+                # amplified nighttime loss (see upkeep above), distinguishing it from
+                # shelter (blunts exposure generally) and clothing (personal insulation)
+                if (in_crisis and 'fire_making' not in r.known_knowledge
+                        and random.random() < FIRE_DISCOVERY_CHANCE):
+                    r.known_knowledge['fire_making'] = {
+                        'level': 0.2, 'source': 'caloric_crisis_experience', 'tick_learned': tick
+                    }
+                    r.skills['fire_making'] = 20.0
+                    evts.append({'tick': tick, 'type': 'discovery',
+                                 'text': f'{r.name} learned to keep fire through the night',
+                                 'x': r.x, 'y': r.y})
+                elif (recovering and 'fire_making' in r.known_knowledge
+                        and random.random() < 0.05):
+                    current = r.known_knowledge['fire_making']['level']
+                    r.known_knowledge['fire_making']['level'] = min(1.0, current + 0.04 * (1.0 - current))
+                    r.skills['fire_making'] = r.known_knowledge['fire_making']['level'] * 100
 
             # Writing discovery — Experiment pathway: a resident who already has spoken
             # language, belongs to a larger organized group, holds enough distinct
@@ -1280,6 +1346,7 @@ class Simulation:
         writing_holders = sum(1 for r in living if 'writing' in r.known_knowledge)
         shelter_holders = sum(1 for r in living if 'shelter_building' in r.known_knowledge)
         clothing_holders = sum(1 for r in living if 'clothing_making' in r.known_knowledge)
+        fire_holders = sum(1 for r in living if 'fire_making' in r.known_knowledge)
 
         metrics = {
             'tick': tick,
@@ -1310,6 +1377,7 @@ class Simulation:
             'writing_holders': writing_holders,
             'shelter_holders': shelter_holders,
             'clothing_holders': clothing_holders,
+            'fire_holders': fire_holders,
             'avg_immunity': round(sum(r.traits.immunity for r in living) / max(1, n), 3),
         }
         self.metrics_history.append(metrics)

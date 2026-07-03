@@ -266,10 +266,15 @@ MAX_AGE is a theoretical ceiling, not a realistic expectation for most residents
 
 Death may occur from multiple causes, each modeled independently:
 
-#### Starvation
+#### Starvation (Caloric Health Model)
 
-- When energy reaches 0, health degrades by `5 × pressure_mult` per tick, where pressure_mult = max(1.0, pressure²).
-- This is the primary population control when resources are scarce.
+Starvation is modeled as a direct, graduated function of caloric reserve (see RFC-0002 Phase 1 Calibration for the full kcal model) rather than a single cliff-edge check at zero energy.
+
+- Below 2000 kcal (of a 3000 kcal reserve capacity), health begins to erode gradually: `1.5 × deficit_ratio × pressure_mult` per tick, where `deficit_ratio = (2000 − energy) / 2000`.
+- Below 1500 kcal, an additional, steeper term applies: `8.0 × severe_deficit_ratio × pressure_mult` per tick, where `severe_deficit_ratio = (1500 − energy) / 1500`.
+- `pressure_mult = max(1.0, population_pressure²)`, so both terms amplify under Malthusian overshoot, same as before.
+- There is no separate "cold damage" or "starvation-at-zero" special case: cold, malnutrition, and hunger all funnel through this same caloric quantity. Cold zones and winter simply raise the daily caloric burn rate (see Winter Exposure below) faster than foraging can replace it, pushing residents into these bands.
+- Foraging conversion rates are calibrated so a resident foraging under normal conditions comfortably stays above 2000 kcal — the erosion band should represent genuine scarcity (winter, overpopulation), not routine operation.
 
 #### Malnutrition
 
@@ -302,19 +307,23 @@ Epidemics are distinct from ordinary background disease: a rarer, far more sever
 - Residents under age 5 face 2.5% per tick chance of health loss (8–20 damage).
 - This produces meaningful childhood mortality consistent with primitive-era demographics.
 
-#### Winter Exposure (Starvation-Driven)
+#### Winter Exposure (Caloric Burn Rate, Not a Separate Damage Formula)
 
-Winter creates acute food scarcity (0.005–0.05× regrowth relative to baseline, see RFC-0003) that drives mortality through the ordinary starvation mechanism — there is no separate, scripted "winter death roll."
+Winter creates acute food scarcity (0.005–0.05× regrowth relative to baseline, see RFC-0003) and raises daily caloric burn — there is no separate, scripted "winter death roll" or "cold damage" mechanic. Cold works entirely by raising how many kcal a resident burns per tick, which then interacts with the Starvation model above.
 
-**Mechanism:**
-- Winter multiplies each resident's per-tick upkeep cost by a zone-specific factor: tropical 1.3×, temperate 1.8×, cold 2.8×.
-- Food storage knowledge reduces this multiplier by up to 30% at full skill (`level 1.0`), representing food preserved from abundant seasons being drawn down during scarcity.
-- Near-zero winter regrowth (0.005–0.05×) means foraging cannot offset upkeep, so energy reserves deplete steadily through the season.
-- When energy reaches 0, ordinary starvation damage applies (see above); residents below the zone's cold threshold also take direct cold exposure damage.
-- Cold zone thresholds and damage are severe enough (`cold_threshold=50`, `cold_dmg=14`, `winter_upkeep=2.8×`) that without food storage, clothing, and shelter knowledge, cold-zone residents are reliably killed off within a single winter. This is a deliberate consequence of the model, not a special-cased death rule.
+**Upkeep mechanism (RFC-0002 Phase 1 Calibration):**
+- Every season (not just winter) has a zone-specific upkeep multiplier; winter carries the dominant cost: tropical 1.3×, temperate 1.8×, cold 2.8×. Spring/summer/autumn multipliers are close to 1.0 (mild, physically-motivated variation).
+- Each tick (one day-night cycle) computes day loss and night loss separately: `day = season_mult × 0.8`, `night = season_mult × 1.2`, averaging back to exactly the season multiplier. This gives technologies distinct, physically sensible levers:
+  - `shelter_building` reduces the season multiplier itself by up to 30% at full skill — it blunts exposure uniformly, day and night.
+  - `fire_making` reduces the *night* multiplier specifically by up to 40% at full skill — fire helps when it's dark and cold, not during the day.
+  - `clothing_making` reduces the resident's overall metabolic burn by up to 25% at full skill — personal insulation, worn constantly.
+  - `food_storage` reduces burn by up to 30% at full skill — preserved food drawn down during scarcity.
+  - These four reductions stack multiplicatively; no single technology alone reaches another's ceiling.
+- Near-zero winter regrowth (0.005–0.05×) means foraging cannot offset this elevated burn, so caloric reserves deplete through the season and residents are pushed into the Starvation model's erosion/death bands above.
+- Cold zone's upkeep (2.8×) is severe enough that without food storage, clothing, shelter, and fire knowledge, cold-zone residents are reliably killed off within a single winter. This is a deliberate consequence of the model, not a special-cased death rule.
 - Tropical and temperate zones are survivable at baseline: winter is costly but not universally lethal, so a knowledge-free population persists there while thinning each winter.
-- `shelter_building` (discovered through repeated direct cold exposure — energy below the zone's cold threshold) reduces cold exposure damage by up to 60% at full skill.
-- `clothing_making` (same discovery trigger, an independent invention) reduces the winter upkeep multiplier by up to 35% at full skill, stacking multiplicatively with food storage's own upkeep reduction.
+
+**Discovery:** all four winter technologies (`food_storage`, `shelter_building`, `clothing_making`, `fire_making`) are discovered through the same Experiment pathway — a resident in the caloric death-zone (below 1500 kcal) during winter has a small per-tick chance of learning each independently. Colder zones and seasons push residents into this crisis state far more often, so these technologies emerge first and fastest exactly where they matter.
 
 **Natural Selection Path:**
 - Winters recur every year and impose real, repeated losses — this is not a single filtering event but an ongoing pressure.

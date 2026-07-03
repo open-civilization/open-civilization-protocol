@@ -307,8 +307,8 @@ function draw() {
     const cx = r.x * cs + cs / 2;
     const cy = r.y * cs + cs / 2;
     let color;
-    if (r.energy > 60) color = '#3fb950';
-    else if (r.energy > 30) color = '#d29922';
+    if (r.energy > 1800) color = '#3fb950';
+    else if (r.energy > 900) color = '#d29922';
     else color = '#f85149';
 
     ctx.beginPath();
@@ -442,8 +442,8 @@ function updateResidentPanel() {
   selectedResident = r;
   panel.classList.add('show');
   $('rp-name').textContent = `${r.name} #${r.id}`;
-  $('rp-energy').textContent = r.energy;
-  $('rp-ebar').style.width = `${r.energy}%`;
+  $('rp-energy').textContent = `${r.energy} kcal`;
+  $('rp-ebar').style.width = `${Math.min(100, r.energy / 30)}%`;
   $('rp-health').textContent = r.health;
   $('rp-hbar').style.width = `${r.health}%`;
   $('rp-age').textContent = r.age;
