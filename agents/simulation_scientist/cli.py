@@ -28,6 +28,12 @@ def build_parser() -> argparse.ArgumentParser:
     audit_parser.add_argument(
         "--out", type=Path, help="Optional path to write the report. Defaults to stdout only.",
     )
+    audit_parser.add_argument(
+        "--include-raw-data", action="store_true",
+        help="Include the full per-tick history and final state in JSON output (large payload; "
+             "used by the in-process agent loop to feed further theory discovery, not needed "
+             "for routine audit use).",
+    )
 
     auto_parser = subparsers.add_parser(
         "autonomous",
@@ -58,7 +64,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _run_audit_mode(args: argparse.Namespace) -> int:
-    report = run_audit(runs=args.runs, ticks_per_run=args.ticks, seed_base=args.seed_base)
+    report = run_audit(
+        runs=args.runs, ticks_per_run=args.ticks, seed_base=args.seed_base,
+        include_raw_data=getattr(args, "include_raw_data", False),
+    )
     rendered = report.to_json() if args.format == "json" else report.to_markdown()
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)
@@ -111,7 +120,7 @@ def main() -> int:
     # Default to audit mode if no subcommand given, preserving the original CLI's behavior.
     if args.mode is None:
         args.runs, args.ticks, args.seed_base = 5, 400, 1000
-        args.format, args.out = "markdown", None
+        args.format, args.out, args.include_raw_data = "markdown", None, False
     return _run_audit_mode(args)
 
 

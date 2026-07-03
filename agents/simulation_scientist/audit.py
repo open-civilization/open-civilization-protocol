@@ -48,6 +48,13 @@ class RunSummary:
     knowledge_holders: dict[str, int]
     findings: list[Finding] = field(default_factory=list)
     theory_findings: list[dict[str, Any]] = field(default_factory=list)
+    # Populated only when explicitly requested (see _analyze_run's include_raw_data) — the
+    # local, in-process agent loop needs the raw history/state to run further theory
+    # discovery attempts against fresh data; the default markdown/print path leaves these
+    # empty to avoid bloating routine audit output with the full per-tick history and
+    # per-resident state.
+    raw_history: list[dict[str, Any]] = field(default_factory=list)
+    raw_state: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -185,6 +192,7 @@ def _analyze_run(
     state: dict[str, Any],
     death_causes: dict[str, int],
     seasonal_deaths: dict[str, int],
+    include_raw_data: bool = False,
 ) -> RunSummary:
     final_metrics = history[-1] if history else {}
     final_population = int(final_metrics.get("pop", 0))
@@ -401,10 +409,12 @@ def _analyze_run(
         knowledge_holders=knowledge_holders,
         findings=findings,
         theory_findings=theory_findings,
+        raw_history=history if include_raw_data else [],
+        raw_state=state if include_raw_data else {},
     )
 
 
-def _simulate_run(run_id: int, seed: int, ticks: int) -> RunSummary:
+def _simulate_run(run_id: int, seed: int, ticks: int, include_raw_data: bool = False) -> RunSummary:
     sim = Simulation(seed=seed)
     for _ in range(ticks):
         living = sum(1 for resident in sim.residents if resident.alive)
@@ -415,7 +425,7 @@ def _simulate_run(run_id: int, seed: int, ticks: int) -> RunSummary:
     state = sim.get_state()
     history = list(sim.metrics_history)
     death_causes, seasonal_deaths = _death_stats(sim.all_events)
-    return _analyze_run(run_id, seed, ticks, history, state, death_causes, seasonal_deaths)
+    return _analyze_run(run_id, seed, ticks, history, state, death_causes, seasonal_deaths, include_raw_data)
 
 
 def _aggregate_runs(runs: list[RunSummary]) -> dict[str, Any]:
@@ -442,9 +452,9 @@ def _aggregate_runs(runs: list[RunSummary]) -> dict[str, Any]:
     }
 
 
-def run_audit(runs: int = 5, ticks_per_run: int = 400, seed_base: int = 1000) -> AuditReport:
+def run_audit(runs: int = 5, ticks_per_run: int = 400, seed_base: int = 1000, include_raw_data: bool = False) -> AuditReport:
     run_summaries = [
-        _simulate_run(run_id=index + 1, seed=seed_base + index, ticks=ticks_per_run)
+        _simulate_run(run_id=index + 1, seed=seed_base + index, ticks=ticks_per_run, include_raw_data=include_raw_data)
         for index in range(runs)
     ]
     return AuditReport(

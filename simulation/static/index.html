@@ -92,6 +92,34 @@ canvas{image-rendering:pixelated}
 .ai-stats{margin-top:8px}
 .ai-stats .stat{padding:2px 0}
 .ai-recent{max-height:100px;overflow-y:auto;margin-top:4px}
+
+/* Simulation Scientist Agent */
+#agent-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;align-items:center;justify-content:center}
+#agent-overlay.show{display:flex}
+#agent-modal{background:#161b22;border:1px solid #30363d;border-radius:10px;width:720px;max-height:85vh;overflow-y:auto;padding:24px}
+#agent-modal h2{font-size:16px;color:#e6edf3;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between}
+#agent-modal h2 button{background:none;border:none;color:#8b949e;font-size:18px;cursor:pointer;padding:0 4px}
+#agent-modal h2 button:hover{color:#e6edf3}
+.agent-controls{display:flex;align-items:center;gap:12px;padding-bottom:12px;border-bottom:1px solid #21262d;margin-bottom:12px;flex-wrap:wrap}
+.agent-controls label{font-size:11px;color:#8b949e;display:flex;align-items:center;gap:4px}
+.agent-controls input{background:#0d1117;border:1px solid #30363d;color:#c9d1d9;border-radius:4px;padding:3px 6px;font-family:inherit;font-size:12px}
+.agent-controls .save-btn{width:auto;margin-top:0;padding:6px 16px}
+#agent-stop-btn{background:#8b2b2b;border:none;border-radius:6px;color:#fff;padding:6px 16px;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600}
+#agent-stop-btn:hover{background:#a83b3b}
+#agent-status-badge.running{background:#1a4b2e;border-color:#238636;color:#3fb950}
+#agent-status-badge.error{background:#4b1a1a;border-color:#8b2b2b;color:#f85149}
+.agent-iter{border:1px solid #21262d;border-radius:6px;padding:10px 12px;margin-bottom:10px}
+.agent-iter h3{font-size:12px;color:#58a6ff;margin-bottom:6px}
+.agent-iter .row{font-size:11px;color:#c9d1d9;padding:2px 0;line-height:1.5}
+.agent-iter .row .k{color:#8b949e}
+.agent-finding{font-size:11px;padding:3px 0;border-left:2px solid #30363d;padding-left:6px;margin:3px 0}
+.agent-finding.high{border-color:#f85149}
+.agent-finding.medium{border-color:#d29922}
+.agent-finding.low,.agent-finding.none{border-color:#3fb950}
+.agent-code{background:#0d1117;border:1px solid #21262d;border-radius:4px;padding:6px 8px;font-size:10px;white-space:pre-wrap;margin:4px 0;max-height:160px;overflow-y:auto}
+.agent-applied{font-weight:600}
+.agent-applied.yes{color:#3fb950}
+.agent-applied.no{color:#f85149}
 .ai-recent-item{font-size:10px;color:#8b949e;padding:2px 0;border-bottom:1px solid #21262d}
 .ai-recent-item .rname{color:#bc8cff}
 </style>
@@ -111,6 +139,7 @@ canvas{image-rendering:pixelated}
       </div>
     </div>
     <span class="ai-badge" id="ai-badge" onclick="openSettings()">AI OFF</span>
+    <button onclick="openAgent()">Agent</button>
     <div class="seed" id="seed-info"></div>
   </header>
   <div id="map-wrap">
@@ -212,6 +241,23 @@ canvas{image-rendering:pixelated}
 
     <button class="save-btn" onclick="saveSettings()">Save</button>
     <div class="save-msg" id="save-msg"></div>
+  </div>
+</div>
+
+<!-- Simulation Scientist Agent -->
+<div id="agent-overlay" onclick="if(event.target===this)closeAgent()">
+  <div id="agent-modal">
+    <h2>Simulation Scientist Agent <button onclick="closeAgent()">&times;</button></h2>
+
+    <div class="agent-controls">
+      <label>Iterations <input type="number" id="agent-max-iter" min="1" max="20" value="3" style="width:50px"></label>
+      <label>Ticks/iter <input type="number" id="agent-ticks" min="50" max="5000" value="500" style="width:70px"></label>
+      <button class="save-btn" id="agent-start-btn" onclick="startAgent()">Start</button>
+      <button id="agent-stop-btn" onclick="stopAgent()" style="display:none">Stop</button>
+      <span id="agent-status-badge" class="ai-badge">idle</span>
+    </div>
+
+    <div id="agent-results"></div>
   </div>
 </div>
 
@@ -647,6 +693,119 @@ async function saveSettings() {
     $('save-msg').textContent = 'Error saving';
     $('save-msg').style.color = '#f85149';
   }
+}
+
+// ── Simulation Scientist Agent ──
+let agentPollTimer = null;
+
+function openAgent() {
+  $('agent-overlay').classList.add('show');
+  refreshAgentStatus();
+  if (!agentPollTimer) agentPollTimer = setInterval(refreshAgentStatus, 2500);
+}
+
+function closeAgent() {
+  $('agent-overlay').classList.remove('show');
+  if (agentPollTimer) { clearInterval(agentPollTimer); agentPollTimer = null; }
+}
+
+async function startAgent() {
+  const maxIter = parseInt($('agent-max-iter').value) || 3;
+  const ticks = parseInt($('agent-ticks').value) || 500;
+  const r = await fetch(API(`/api/agent/start?max_iterations=${maxIter}&ticks_per_iteration=${ticks}`), {method:'POST'});
+  const data = await r.json();
+  if (!data.ok) {
+    alert(data.message || 'Could not start agent');
+    return;
+  }
+  refreshAgentStatus();
+  if (!agentPollTimer) agentPollTimer = setInterval(refreshAgentStatus, 2500);
+}
+
+async function stopAgent() {
+  await fetch(API('/api/agent/stop'), {method:'POST'});
+  refreshAgentStatus();
+}
+
+async function refreshAgentStatus() {
+  let status;
+  try {
+    const r = await fetch(API('/api/agent/status'));
+    status = await r.json();
+  } catch(e) {
+    return;
+  }
+  renderAgentStatus(status);
+}
+
+function renderAgentStatus(status) {
+  const badge = $('agent-status-badge');
+  const startBtn = $('agent-start-btn');
+  const stopBtn = $('agent-stop-btn');
+
+  if (status.running) {
+    badge.textContent = `running (${status.current_iteration}/${status.max_iterations})`;
+    badge.className = 'ai-badge running';
+    startBtn.disabled = true;
+    stopBtn.style.display = 'inline-block';
+  } else {
+    badge.textContent = status.error ? 'error' : 'idle';
+    badge.className = status.error ? 'ai-badge error' : 'ai-badge';
+    startBtn.disabled = false;
+    stopBtn.style.display = 'none';
+  }
+
+  const results = $('agent-results');
+  const errorBanner = status.error ? `<div class="agent-finding high">Agent error: ${escapeHtml(status.error)}</div>` : '';
+
+  const iterations = status.iterations || [];
+  if (!iterations.length) {
+    results.innerHTML = errorBanner || '<div style="color:#484f58;font-size:11px">No runs yet. Click Start to run the agent against the current code.</div>';
+    return;
+  }
+
+  results.innerHTML = errorBanner + iterations.map(renderAgentIteration).join('');
+}
+
+function renderAgentIteration(it) {
+  const findings = (it.findings || []).map(f =>
+    `<div class="agent-finding ${f.severity}">[${f.severity}] <b>${escapeHtml(f.title)}</b>: ${escapeHtml(f.summary)}</div>`
+  ).join('');
+  const theoryFindings = (it.theory_findings || []).map(f =>
+    `<div class="agent-finding ${f.severity}">[${f.severity}] <b>${escapeHtml(f.theory)}</b> (${escapeHtml(f.citation)})<br>${escapeHtml(f.gap)}</div>`
+  ).join('');
+
+  const p = it.proposal || {};
+  let proposalHtml = `<div class="row"><span class="k">Hypothesis:</span> ${escapeHtml(p.hypothesis || '')}</div>
+    <div class="row"><span class="k">Action:</span> ${escapeHtml(p.action || 'none')} — ${escapeHtml(p.rationale || '')}</div>`;
+  if (p.action === 'parameter') {
+    proposalHtml += `<div class="row"><span class="k">Parameter:</span> ${escapeHtml(p.parameter_name || '')} = ${escapeHtml(String(p.parameter_value ?? ''))}</div>`;
+  } else if (p.action === 'code_edit' && p.old_string) {
+    proposalHtml += `<div class="row"><span class="k">old_string:</span></div><div class="agent-code">${escapeHtml(p.old_string)}</div>
+      <div class="row"><span class="k">new_string:</span></div><div class="agent-code">${escapeHtml(p.new_string || '')}</div>`;
+  }
+
+  const applied = it.apply_result;
+  const appliedHtml = applied
+    ? `<div class="row agent-applied ${applied.applied ? 'yes' : 'no'}">applied: ${applied.applied} — ${escapeHtml(applied.message || '')}</div>`
+    : '';
+
+  const discoveryHtml = it.discovery_message
+    ? `<div class="row"><span class="k">Theory discovery:</span> ${escapeHtml(it.discovery_message)}${it.discovered_theory ? ` → registered "${escapeHtml(it.discovered_theory)}"` : ''}</div>`
+    : '';
+
+  return `<div class="agent-iter">
+    <h3>Iteration ${it.iteration} — pop ${it.final_population ?? '?'}${it.audit_ok === false ? ' (audit failed)' : ''}</h3>
+    ${it.audit_error ? `<div class="agent-finding high">${escapeHtml(it.audit_error)}</div>` : ''}
+    ${findings}${theoryFindings}
+    ${discoveryHtml}
+    ${proposalHtml}
+    ${appliedHtml}
+  </div>`;
+}
+
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
 // Init
