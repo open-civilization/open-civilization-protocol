@@ -3,3 +3,4 @@ __pycache__/
 simulation/settings.json
 agents/simulation_scientist/agent_settings.json
 agents/simulation_scientist/agent_control.json
+agent-poller.log
