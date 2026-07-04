@@ -670,7 +670,7 @@ def decide(r, grid, residents, tick, pressure=0.0):
 
     # REPRODUCE — fertility drops under Malthusian pressure
     if r.energy > REPRODUCTION_ENERGY and r.age > REPRODUCTION_AGE:
-        fertility = 1.0 if pressure < 0.8 else max(0.05, 1.0 / (1.0 + (pressure - 0.8) * 5))
+        fertility = 1.0 if pressure < 1.0 else max(0.05, 1.0 - (pressure - 1.0) * 2.0)
         if random.random() < fertility:
             partners = [(res, d) for res, d in near_res
                         if res.energy > REPRODUCTION_ENERGY and res.age > REPRODUCTION_AGE]

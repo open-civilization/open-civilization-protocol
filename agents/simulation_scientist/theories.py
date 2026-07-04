@@ -364,6 +364,75 @@ def _risky_knowledge_drift_compare(history, state):
     return None
 
 
+def _henrich_demographic_cultural_loss_compare(history, state):
+    # Extract skill/knowledge holders per tick
+    holders_keys = ['knowledge_holders', 'language_holders', 'writing_holders',
+                    'shelter_holders', 'clothing_holders', 'fire_holders']
+    # Check maximum holders for each skill across all ticks
+    max_holders = {k: 0 for k in holders_keys}
+    for row in history:
+        for k in holders_keys:
+            v = row.get(k, 0)
+            if v is not None and v > max_holders[k]:
+                max_holders[k] = v
+    # Identify skills ever held by fewer than 5 individuals (critical loss risk)
+    at_risk_skills = [k for k, v in max_holders.items() if v < 5]
+    # Check that at the final tick, for any skill that ever had >=5 holders,
+    # it still has >=5 holders
+    final = history[-1]
+    lost_skills = []
+    for k in holders_keys:
+        if max_holders.get(k, 0) >= 5:
+            final_v = final.get(k, 0)
+            if final_v is None or final_v < 5:
+                lost_skills.append(k)
+    # Also check that number of distinct skills held > 0 is not declining in the tail
+    # (we define tail as last 20% of ticks)
+    n = len(history)
+    tail_start = int(n * 0.8)
+    tail_ticks = history[tail_start:]
+    first_tail = tail_ticks[0] if tail_ticks else {}
+    last_tail = tail_ticks[-1] if tail_ticks else {}
+    count_first = sum(1 for k in holders_keys if first_tail.get(k, 0) and first_tail[k] > 0)
+    count_last = sum(1 for k in holders_keys if last_tail.get(k, 0) and last_tail[k] > 0)
+    # Also check if population ever fell below 40 (critical threshold from Henrich)
+    min_pop = min(row.get('pop', 999999) for row in history)
+    population_bottleneck = min_pop < 40
+    if population_bottleneck and count_last < count_first:
+        return TheoryFinding(
+            theory="Demographic cultural loss (Tasmanian effect)",
+            citation="Henrich, J. (2004). Demography and cultural evolution. American Antiquity, 69(2), 197-214.",
+            prediction="Complex skills should be maintained once acquired if population remains above ~40, but may be lost irreversibly after a population bottleneck below that threshold.",
+            observed={
+                "lost_skills": lost_skills,
+                "first_tail_skill_count": count_first,
+                "last_tail_skill_count": count_last,
+                "minimum_population": min_pop,
+                "population_bottleneck_detected": population_bottleneck
+            },
+            gap=f"Population fell to {min_pop} (below Henrich's ~40 threshold) and {count_last - count_first} skills were lost in the tail, indicating irreversible cultural loss despite later recovery.",
+            severity="high",
+            suggested_investigation="min_viable_pop_for_skill_transmission, skill_complexity_metrics"
+        )
+    # Even without a bottleneck, check monotonicity in tail
+    if count_last < count_first - 1:  # loss of 2 or more skills
+        return TheoryFinding(
+            theory="Demographic cultural loss (Tasmanian effect)",
+            citation="Henrich, J. (2004). Demography and cultural evolution. American Antiquity, 69(2), 197-214.",
+            prediction="Complex skills should be stable or increase over time once acquired, unless population experiences a severe bottleneck.",
+            observed={
+                "first_tail_skill_count": count_first,
+                "last_tail_skill_count": count_last,
+                "minimum_population": min_pop,
+                "lost_skills": lost_skills
+            },
+            gap=f"In the last 20% of ticks, the number of maintained skills dropped from {count_first} to {count_last} without a known population crash. This suggests cumulative cultural loss.",
+            severity="medium",
+            suggested_investigation="skill_loss_event_timing, social_network_connectivity"
+        )
+    return None
+
+
 LENSES: list[TheoryLens] = [
     TheoryLens("Malthusian population dynamics", "Malthus (1798)",
                "Population oscillates around carrying capacity under growth/check dynamics.",
@@ -383,6 +452,9 @@ LENSES: list[TheoryLens] = [
         TheoryLens("Risky knowledge / extinction of beneficial traits (cultural drift & forgetting)", "Henrich, The Secret of Our Success (2015); Boyd & Richerson, Culture and the Evolutionary Process (1985)",
                "When a beneficial skill (e.g., farming, herding, writing) is held by few individuals (low 'knowledge_ratio'), random death events should cause stochastic loss of that skill in the population, leading to a downward drift in the count of knowledge holders over time — especially at low population sizes.",
                _risky_knowledge_drift_compare),
+    TheoryLens("Cumulative cultural evolution bottleneck / Tasmanian effect", "Henrich, J. (2004). Demography and cultural evolution: why adaptive cultural systems can be maladaptive. American Antiquity, 69(2), 197-214.",
+               "When population size falls below a critical threshold (typically ~250–300 individuals), the pool of knowledgeable individuals becomes too small to maintain complex, multi-step skills, leading to a net loss of adaptive cultural traits over time, even if the population later recovers.",
+               _henrich_demographic_cultural_loss_compare),
 # AUTO-DISCOVERED LENSES REGISTERED BELOW THIS LINE — appended by discovery.py
 ]
 
