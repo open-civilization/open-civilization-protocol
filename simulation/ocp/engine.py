@@ -1139,8 +1139,8 @@ class Simulation:
         # selective breeding, fertilizer)
         for row in self.grid:
             for c in row:
+                m = c.season_mult(season)
                 if c.biomass < c.biomass_cap:
-                    m = c.season_mult(season)
                     cultivation_bonus = 1.0 + c.cultivation * CULTIVATION_MAX_BONUS * c.ag_tech_mult
                     c.biomass = min(c.biomass_cap, c.biomass + TERRAIN[c.terrain]['regrow'] * m * cultivation_bonus)
                 # Untended land slowly reverts to wild (Law 10 Entropy) — cultivation LEVEL
