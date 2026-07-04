@@ -161,6 +161,7 @@ def run_autonomous_loop(
             try:
                 disc, discovery_message = discovery.discover_theory(
                     report_dict, experiment.history, experiment.final_state,
+                    settings=agent_settings,
                 )
             except Exception as exc:  # noqa: BLE001 - discovery is best-effort, never blocks the loop
                 disc, discovery_message = None, f"Discovery raised an exception: {exc!r}"
