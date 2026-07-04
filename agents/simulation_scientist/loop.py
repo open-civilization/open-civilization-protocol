@@ -102,6 +102,7 @@ def run_autonomous_loop(
     enable_theory_discovery: bool = True,
     agent_settings: Optional[dict[str, Any]] = None,
     should_stop: Optional[Callable[[], bool]] = None,
+    research_note: Optional[str] = None,
 ) -> LoopReport:
     report = LoopReport()
 
@@ -172,7 +173,7 @@ def run_autonomous_loop(
                     discovered_theory = disc.theory_name
 
         # 5. Ask the LLM advisor for exactly one next experiment
-        proposal = advisor.get_advice(report_dict, engine_path, settings=agent_settings)
+        proposal = advisor.get_advice(report_dict, engine_path, settings=agent_settings, research_note=research_note)
 
         # 6. Apply it locally (no git operations — plain working-tree edit)
         apply_result = None

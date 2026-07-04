@@ -48,7 +48,7 @@ NONE_PROPOSAL = Proposal(
 )
 
 
-def build_prompt(report: dict[str, Any], engine_source: str) -> str:
+def build_prompt(report: dict[str, Any], engine_source: str, research_note: Optional[str] = None) -> str:
     findings_json = json.dumps(report.get("aggregate", {}), indent=2, ensure_ascii=False)
     run_findings = []
     theory_findings = []
@@ -59,6 +59,18 @@ def build_prompt(report: dict[str, Any], engine_source: str) -> str:
             theory_findings.append({"run": run.get("run_id"), **tf})
     per_run_json = json.dumps(run_findings, indent=2, ensure_ascii=False)
     theory_json = json.dumps(theory_findings, indent=2, ensure_ascii=False)
+
+    note_section = ""
+    if research_note and research_note.strip():
+        note_section = f"""
+## Human researcher's current direction
+The human supervising this project left this note — weight it heavily when choosing what to
+investigate or propose, but still ground your specific proposal in the evidence below rather
+than inventing something ungrounded just to match the note:
+\"\"\"
+{research_note.strip()}
+\"\"\"
+"""
 
     return f"""You are a simulation scientist studying an emergent-civilization sandbox (OCP).
 Residents forage, reproduce, age, and die under real physical constraints (climate, calories,
@@ -72,7 +84,7 @@ commons, exchange economics) — these are the more important signal, since they
 established theory the simulation is failing to reproduce and WHY, in terms of what the model
 does or doesn't represent. Ad hoc findings tell you something is off; theory findings tell you
 what real-world mechanism is missing or misapplied. Finally, the full current engine source.
-
+{note_section}
 ## Ad hoc heuristic findings (aggregate)
 {findings_json}
 
@@ -148,6 +160,7 @@ def get_advice(
     report: dict[str, Any],
     engine_path: Path,
     settings: Optional[dict[str, Any]] = None,
+    research_note: Optional[str] = None,
 ) -> Proposal:
     settings = settings or load_settings()
     provider = settings.get("provider", "anthropic")
@@ -163,7 +176,7 @@ def get_advice(
         )
 
     engine_source = engine_path.read_text(encoding="utf-8")
-    prompt = build_prompt(report, engine_source)
+    prompt = build_prompt(report, engine_source, research_note=research_note)
     raw = call_llm(provider, api_key, model, prompt, max_tokens=1200, timeout=60)
     if not raw:
         return Proposal(hypothesis="", action="none", rationale="LLM call failed or returned nothing.")

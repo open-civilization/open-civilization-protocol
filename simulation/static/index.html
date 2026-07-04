@@ -264,6 +264,9 @@ canvas{image-rendering:pixelated}
     <button class="save-btn" style="width:auto;padding:6px 16px" onclick="saveAgentSettings()">Save Model Settings</button>
     <span class="save-msg" id="agent-settings-save-msg" style="margin-left:8px"></span>
 
+    <h3>Research Direction <span style="font-weight:normal;color:#484f58;text-transform:none;letter-spacing:0">(optional — tells the agent what to focus on next; kept until you change it)</span></h3>
+    <textarea id="agent-research-note" rows="3" style="width:100%;background:#0d1117;border:1px solid #30363d;border-radius:4px;padding:6px 8px;color:#c9d1d9;font-family:inherit;font-size:12px;resize:vertical" placeholder="e.g. &quot;Focus on why breeding/fertilizer tech never unlocks even at high population&quot; or &quot;try investigating trade networks next&quot;"></textarea>
+
     <div class="agent-controls" style="margin-top:16px">
       <label>Iterations <input type="number" id="agent-max-iter" min="1" max="20" value="3" style="width:50px"></label>
       <label>Ticks/iter <input type="number" id="agent-ticks" min="50" max="5000" value="500" style="width:70px"></label>
@@ -816,6 +819,7 @@ async function loadControlConfig() {
   $('agent-max-iter').value = status.max_iterations || 3;
   $('agent-ticks').value = status.ticks_per_iteration || 500;
   $('auto-interval').value = status.interval_hours || 6;
+  $('agent-research-note').value = status.research_note || '';
   renderControl(status);
 }
 
@@ -831,9 +835,10 @@ async function refreshControl() {
 async function saveControlConfig() {
   const maxIter = parseInt($('agent-max-iter').value) || 3;
   const ticks = parseInt($('agent-ticks').value) || 500;
+  const note = $('agent-research-note').value;
   await fetch(API('/api/agent/control/config'), {
     method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({max_iterations: maxIter, ticks_per_iteration: ticks}),
+    body: JSON.stringify({max_iterations: maxIter, ticks_per_iteration: ticks, research_note: note}),
   });
   refreshControl();
 }

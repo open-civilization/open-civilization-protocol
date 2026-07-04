@@ -31,6 +31,7 @@ DEFAULT_STATE: dict[str, Any] = {
     "status": "idle",  # "idle" | "running"
     "current_started_at": None,
     "next_run_at": None,
+    "research_note": "",  # free-text human direction, included in every advisor prompt until changed
     "history": [],
 }
 
@@ -69,6 +70,7 @@ def update_config(
     interval_hours: Optional[float] = None,
     max_iterations: Optional[int] = None,
     ticks_per_iteration: Optional[int] = None,
+    research_note: Optional[str] = None,
 ) -> dict[str, Any]:
     with _lock:
         state = _load()
@@ -80,6 +82,8 @@ def update_config(
             state["max_iterations"] = max_iterations
         if ticks_per_iteration is not None:
             state["ticks_per_iteration"] = ticks_per_iteration
+        if research_note is not None:
+            state["research_note"] = research_note
         if state["mode"] == "interval" and not state.get("next_run_at"):
             state["next_run_at"] = _iso_in(state["interval_hours"] * 3600)
         if state["mode"] == "manual":

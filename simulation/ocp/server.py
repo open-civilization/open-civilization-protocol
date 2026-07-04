@@ -125,6 +125,7 @@ def agent_control_config(body: dict):
         interval_hours=body.get("interval_hours"),
         max_iterations=body.get("max_iterations"),
         ticks_per_iteration=body.get("ticks_per_iteration"),
+        research_note=body.get("research_note"),
     )
 
 

@@ -99,6 +99,7 @@ def run_once(
         ticks_per_iteration=int(state.get("ticks_per_iteration", 500)),
         agent_settings=agent_settings,
         should_stop=client.is_stop_requested,
+        research_note=state.get("research_note") or None,
     )
 
     applied_any = any((it.apply_result or {}).get("applied") for it in report.iterations)
