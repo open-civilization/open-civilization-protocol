@@ -12,6 +12,7 @@ consumer and is free to run a different LLM than the live simulation.
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 from dataclasses import asdict, dataclass
@@ -213,6 +214,12 @@ def apply_parameter_change(engine_path: Path, name: str, new_value: str) -> Appl
     if trailing.strip().startswith("#") and not trailing.startswith("  "):
         trailing = "  " + trailing.lstrip()
     new_source = source[: m.start()] + f"{m.group(1)}{new_value}{trailing}" + source[m.end():]
+
+    try:
+        ast.parse(new_source)
+    except SyntaxError as exc:
+        return ApplyResult(applied=False, message=f"Refusing to apply: resulting file has a syntax error ({exc}).")
+
     engine_path.write_text(new_source, encoding="utf-8")
     return ApplyResult(applied=True, message=f"{name} changed to {new_value}")
 
@@ -256,6 +263,15 @@ def apply_code_edit(file_path: Path, old_string: str, new_string: str) -> ApplyR
     if count > 1:
         return ApplyResult(applied=False, message=f"old_string is ambiguous ({count} occurrences) — refusing to apply.")
     new_source = source.replace(old_string, new_string, 1)
+
+    # Syntax gate: this file may be live-reloaded by an autonomous restart with no human
+    # in the loop to catch a broken edit before it takes effect, so a file that doesn't
+    # even parse must never reach disk.
+    try:
+        ast.parse(new_source)
+    except SyntaxError as exc:
+        return ApplyResult(applied=False, message=f"Refusing to apply: resulting file has a syntax error ({exc}).")
+
     file_path.write_text(new_source, encoding="utf-8")
 
     # Post-write verification: re-read from disk and confirm the change actually landed.

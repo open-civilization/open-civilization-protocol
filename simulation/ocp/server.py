@@ -21,6 +21,7 @@ if str(REPO_ROOT) not in sys.path:
 from agents.simulation_scientist import run_audit
 from agents.simulation_scientist import agent_settings
 from agents.simulation_scientist.local_loop import LocalAgentRunner
+from agents.simulation_scientist.scheduler import AutonomousScheduler
 
 app = FastAPI(title="OCP Phase 1")
 sim = Simulation()
@@ -28,6 +29,7 @@ sim = Simulation()
 STATIC = Path(__file__).resolve().parent.parent / "static"
 ENGINE_PATH = Path(__file__).resolve().parent / "engine.py"
 agent_runner = LocalAgentRunner(REPO_ROOT, ENGINE_PATH)
+agent_scheduler = AutonomousScheduler(agent_runner, REPO_ROOT)
 
 
 @app.get("/api/state")
@@ -121,6 +123,23 @@ def agent_settings_get():
 def agent_settings_post(body: dict):
     updated = agent_settings.update_settings(body)
     return agent_settings.get_public_settings(updated)
+
+
+@app.post("/api/agent/auto/start")
+def agent_auto_start(interval_hours: float = 6, max_iterations: int = 3, ticks_per_iteration: int = 500):
+    started, message = agent_scheduler.enable(interval_hours, max_iterations, ticks_per_iteration)
+    return {"ok": started, "message": message}
+
+
+@app.post("/api/agent/auto/stop")
+def agent_auto_stop():
+    ok, message = agent_scheduler.disable()
+    return {"ok": ok, "message": message}
+
+
+@app.get("/api/agent/auto/status")
+def agent_auto_status():
+    return agent_scheduler.get_status()
 
 
 @app.get("/")

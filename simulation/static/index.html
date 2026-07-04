@@ -272,6 +272,19 @@ canvas{image-rendering:pixelated}
       <span id="agent-status-badge" class="ai-badge">idle</span>
     </div>
 
+    <h3>Autonomous Mode <span style="font-weight:normal;color:#484f58;text-transform:none;letter-spacing:0">(runs unattended, auto-applies fixes, restarts the live sim, pushes to git)</span></h3>
+    <div class="agent-controls">
+      <label class="toggle">
+        <input type="checkbox" id="auto-enabled" onchange="toggleAutoMode()">
+        <span class="slider"></span>
+      </label>
+      <label>Every <input type="number" id="auto-interval" min="0.1" max="168" step="0.5" value="6" style="width:50px"> hours</label>
+      <label>Iterations <input type="number" id="auto-max-iter" min="1" max="20" value="3" style="width:50px"></label>
+      <label>Ticks/iter <input type="number" id="auto-ticks" min="50" max="5000" value="500" style="width:70px"></label>
+      <span id="auto-status-badge" class="ai-badge">off</span>
+    </div>
+    <div id="auto-history" style="font-size:11px;color:#8b949e;margin:6px 0 0"></div>
+
     <div id="agent-results"></div>
   </div>
 </div>
@@ -719,7 +732,8 @@ function openAgent() {
   $('agent-overlay').classList.add('show');
   loadAgentSettings();
   refreshAgentStatus();
-  if (!agentPollTimer) agentPollTimer = setInterval(refreshAgentStatus, 2500);
+  refreshAutoStatus();
+  if (!agentPollTimer) agentPollTimer = setInterval(() => { refreshAgentStatus(); refreshAutoStatus(); }, 2500);
 }
 
 async function loadAgentSettings() {
@@ -851,6 +865,67 @@ function renderAgentStatus(status) {
   }
 
   results.innerHTML = errorBanner + iterations.map(renderAgentIteration).join('');
+}
+
+async function refreshAutoStatus() {
+  let status;
+  try {
+    const r = await fetch(API('/api/agent/auto/status'));
+    status = await r.json();
+  } catch(e) {
+    return;
+  }
+  renderAutoStatus(status);
+}
+
+function renderAutoStatus(status) {
+  $('auto-enabled').checked = status.enabled;
+  if (!status.enabled) {
+    $('auto-interval').value = status.interval_hours || 6;
+    $('auto-max-iter').value = status.max_iterations || 3;
+    $('auto-ticks').value = status.ticks_per_iteration || 500;
+  }
+
+  const badge = $('auto-status-badge');
+  if (status.enabled) {
+    badge.textContent = status.next_run_at ? `on — next run ${new Date(status.next_run_at).toLocaleString()}` : 'on';
+    badge.className = 'ai-badge running';
+  } else {
+    badge.textContent = 'off';
+    badge.className = 'ai-badge';
+  }
+
+  const history = (status.history || []).slice().reverse();
+  $('auto-history').innerHTML = history.length
+    ? history.map(h => {
+        const pushMsg = h.git_push ? escapeHtml(h.git_push.message || '') : '';
+        const pushed = h.git_push && h.git_push.pushed;
+        return `<div style="padding:3px 0;border-top:1px solid #21262d">
+          ${new Date(h.finished_at).toLocaleString()} — ${h.applied_any_change ? 'applied a change, restarted' : 'no change applied'}
+          ${h.applied_any_change ? `<span class="${pushed ? 'agent-applied yes' : 'agent-applied no'}" style="margin-left:6px">${pushed ? 'pushed' : 'not pushed'}</span>` : ''}
+          <div style="color:#484f58">${pushMsg}</div>
+        </div>`;
+      }).join('')
+    : '';
+}
+
+async function toggleAutoMode() {
+  const enabled = $('auto-enabled').checked;
+  if (enabled) {
+    const interval = parseFloat($('auto-interval').value) || 6;
+    const maxIter = parseInt($('auto-max-iter').value) || 3;
+    const ticks = parseInt($('auto-ticks').value) || 500;
+    const r = await fetch(API(`/api/agent/auto/start?interval_hours=${interval}&max_iterations=${maxIter}&ticks_per_iteration=${ticks}`), {method:'POST'});
+    const data = await r.json();
+    if (!data.ok) {
+      alert(data.message || 'Could not enable autonomous mode');
+      $('auto-enabled').checked = false;
+      return;
+    }
+  } else {
+    await fetch(API('/api/agent/auto/stop'), {method:'POST'});
+  }
+  refreshAutoStatus();
 }
 
 function renderAgentIteration(it) {
