@@ -24,7 +24,7 @@ REPRODUCTION_AGE = 13
 # thresholds are physically interpretable rather than an abstract 0-100 scale. A tick
 # represents one full day-night cycle; each tick deducts one day's net caloric loss.
 MAX_ENERGY = 3000.0             # full caloric reserve — "well-fed" baseline
-REPRODUCTION_ENERGY = 1650.0    # reserve required (55% of max) before reproduction is attempted
+REPRODUCTION_ENERGY = 1800.0    # reserve required (55% of max) before reproduction is attempted
 REPRODUCTION_COST = 750.0       # reserve spent per parent per birth
 OFFSPRING_ENERGY = 600.0        # newborn starting reserve
 BASELINE_ENERGY_COST = 60.0     # baseline daily metabolic burn before season/technology modifiers
