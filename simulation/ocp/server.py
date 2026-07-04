@@ -20,16 +20,13 @@ if str(REPO_ROOT) not in sys.path:
 
 from agents.simulation_scientist import run_audit
 from agents.simulation_scientist import agent_settings
-from agents.simulation_scientist.local_loop import LocalAgentRunner
-from agents.simulation_scientist.scheduler import AutonomousScheduler
+from agents.simulation_scientist import agent_control
 
 app = FastAPI(title="OCP Phase 1")
 sim = Simulation()
 
 STATIC = Path(__file__).resolve().parent.parent / "static"
 ENGINE_PATH = Path(__file__).resolve().parent / "engine.py"
-agent_runner = LocalAgentRunner(REPO_ROOT, ENGINE_PATH)
-agent_scheduler = AutonomousScheduler(agent_runner, REPO_ROOT)
 
 
 @app.get("/api/state")
@@ -97,23 +94,6 @@ def audit_markdown(runs: int = 3, ticks: int = 300, seed_base: int = 1000):
     return {"markdown": report.to_markdown()}
 
 
-@app.post("/api/agent/start")
-def agent_start(max_iterations: int = 3, ticks_per_iteration: int = 500):
-    started, message = agent_runner.start(max_iterations, ticks_per_iteration)
-    return {"ok": started, "message": message}
-
-
-@app.post("/api/agent/stop")
-def agent_stop():
-    agent_runner.request_stop()
-    return {"ok": True}
-
-
-@app.get("/api/agent/status")
-def agent_status():
-    return agent_runner.get_status()
-
-
 @app.get("/api/agent/settings")
 def agent_settings_get():
     return agent_settings.get_public_settings(agent_settings.load_settings())
@@ -125,21 +105,48 @@ def agent_settings_post(body: dict):
     return agent_settings.get_public_settings(updated)
 
 
-@app.post("/api/agent/auto/start")
-def agent_auto_start(interval_hours: float = 6, max_iterations: int = 3, ticks_per_iteration: int = 500):
-    started, message = agent_scheduler.enable(interval_hours, max_iterations, ticks_per_iteration)
-    return {"ok": started, "message": message}
+@app.get("/api/agent/settings/raw")
+def agent_settings_raw():
+    """Unmasked settings (including the real API key) for the polling machine
+    to actually call the LLM with. Never call this from browser JS — the
+    dashboard UI must keep using the masked /api/agent/settings above."""
+    return agent_settings.load_settings()
 
 
-@app.post("/api/agent/auto/stop")
-def agent_auto_stop():
-    ok, message = agent_scheduler.disable()
-    return {"ok": ok, "message": message}
+@app.get("/api/agent/control")
+def agent_control_get():
+    return agent_control.get_status()
 
 
-@app.get("/api/agent/auto/status")
-def agent_auto_status():
-    return agent_scheduler.get_status()
+@app.post("/api/agent/control/config")
+def agent_control_config(body: dict):
+    return agent_control.update_config(
+        mode=body.get("mode"),
+        interval_hours=body.get("interval_hours"),
+        max_iterations=body.get("max_iterations"),
+        ticks_per_iteration=body.get("ticks_per_iteration"),
+    )
+
+
+@app.post("/api/agent/control/run-now")
+def agent_control_run_now():
+    return agent_control.request_run_now()
+
+
+@app.post("/api/agent/control/stop")
+def agent_control_stop():
+    return agent_control.request_stop()
+
+
+@app.post("/api/agent/control/claim")
+def agent_control_claim():
+    claimed, state = agent_control.claim_run()
+    return {"claimed": claimed, "state": state}
+
+
+@app.post("/api/agent/control/report")
+def agent_control_report(body: dict):
+    return agent_control.report_run(body)
 
 
 @app.get("/")

@@ -24,7 +24,6 @@ class DeployTarget:
     host: str  # e.g. "ubuntu@95.40.7.77"
     remote_root: str  # e.g. "/home/ubuntu/ocp-simulation"
     api_port: int = 8420
-    venv_activate: str = "source venv/bin/activate"
     run_cmd: str = "python3 run.py"
     log_file: str = "ocp.log"
 
@@ -52,31 +51,32 @@ def deploy_files(target: DeployTarget, files: dict[str, str]) -> None:
             raise RuntimeError(f"scp failed for {local_path} -> {remote_rel}: {result.stderr}")
 
 
-def restart_server(target: DeployTarget, settle_seconds: float = 6.0) -> DeployResult:
-    """Kill any running instance and start a fresh, detached one that survives
-    the SSH session ending (setsid + nohup), same pattern used throughout
-    manual operation of this sandbox."""
-    target.ssh(f"pkill -9 -f \"{target.run_cmd}\"", timeout=15)
-    time.sleep(1.5)
-    # `disown; exit 0` makes the remote shell exit immediately after backgrounding, but
-    # the LOCAL ssh client can still occasionally take longer than expected to observe
-    # the connection close (observed empirically: the remote process starts successfully
-    # well within a second, but the local subprocess call sometimes doesn't return for
-    # 15+ seconds). Rather than treat that as a hard failure, swallow a local timeout here
-    # and fall through to the independent pgrep check below, which is what actually
-    # determines success.
-    start_cmd = (
-        f"cd {target.remote_root} && {target.venv_activate} && "
-        f"setsid nohup {target.run_cmd} > {target.log_file} 2>&1 < /dev/null & disown; exit 0"
-    )
-    try:
-        target.ssh(start_cmd, timeout=25)
-    except subprocess.TimeoutExpired:
-        pass
-    time.sleep(settle_seconds)
+def restart_server(target: DeployTarget, settle_seconds: float = 6.0, respawn_timeout: float = 20.0) -> DeployResult:
+    """Kill the running instance and wait for the sandbox's own crash-resilient
+    supervisor (run_forever.sh: `while true; do python3 run.py; sleep 2; done`)
+    to bring a fresh one back up.
 
-    check = target.ssh(f"pgrep -f \"{target.run_cmd}\"", timeout=10)
-    started = check.returncode == 0 and bool(check.stdout.strip())
+    This deliberately does NOT launch a replacement process itself — an earlier
+    version did (`setsid nohup ... &`), which raced the supervisor's own
+    respawn: both could end up trying to bind the API port at nearly the same
+    time. Since every deployment now runs under that supervisor, killing the
+    old process and waiting for a new pid to appear is the only step needed.
+    """
+    before = target.ssh(f"pgrep -f \"{target.run_cmd}\"", timeout=10)
+    before_pids = set(before.stdout.split())
+
+    target.ssh(f"pkill -9 -f \"{target.run_cmd}\"", timeout=15)
+
+    deadline = time.time() + respawn_timeout
+    started = False
+    while time.time() < deadline:
+        time.sleep(1.0)
+        check = target.ssh(f"pgrep -f \"{target.run_cmd}\"", timeout=10)
+        after_pids = set(check.stdout.split())
+        if after_pids and after_pids != before_pids:
+            started = True
+            break
+    time.sleep(settle_seconds)
 
     errors = None
     if started:

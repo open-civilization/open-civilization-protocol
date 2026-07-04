@@ -267,23 +267,22 @@ canvas{image-rendering:pixelated}
     <div class="agent-controls" style="margin-top:16px">
       <label>Iterations <input type="number" id="agent-max-iter" min="1" max="20" value="3" style="width:50px"></label>
       <label>Ticks/iter <input type="number" id="agent-ticks" min="50" max="5000" value="500" style="width:70px"></label>
-      <button class="save-btn" id="agent-start-btn" onclick="startAgent()">Start</button>
+      <button class="save-btn" style="width:auto;padding:6px 16px" onclick="saveControlConfig()">Save</button>
+      <button class="save-btn" id="agent-start-btn" onclick="runAgentNow()">Run Now</button>
       <button id="agent-stop-btn" onclick="stopAgent()" style="display:none">Stop</button>
       <span id="agent-status-badge" class="ai-badge">idle</span>
     </div>
+    <div style="font-size:10px;color:#484f58;margin:2px 0 0">Executed by the polling machine, not this server — see "How it runs" below.</div>
 
-    <h3>Autonomous Mode <span style="font-weight:normal;color:#484f58;text-transform:none;letter-spacing:0">(runs unattended, auto-applies fixes, restarts the live sim, pushes to git)</span></h3>
+    <h3>Autonomous Mode <span style="font-weight:normal;color:#484f58;text-transform:none;letter-spacing:0">(the polling machine runs it unattended on a schedule, auto-applies fixes, pushes to git, redeploys this sandbox)</span></h3>
     <div class="agent-controls">
       <label class="toggle">
         <input type="checkbox" id="auto-enabled" onchange="toggleAutoMode()">
         <span class="slider"></span>
       </label>
       <label>Every <input type="number" id="auto-interval" min="0.1" max="168" step="0.5" value="6" style="width:50px"> hours</label>
-      <label>Iterations <input type="number" id="auto-max-iter" min="1" max="20" value="3" style="width:50px"></label>
-      <label>Ticks/iter <input type="number" id="auto-ticks" min="50" max="5000" value="500" style="width:70px"></label>
       <span id="auto-status-badge" class="ai-badge">off</span>
     </div>
-    <div id="auto-history" style="font-size:11px;color:#8b949e;margin:6px 0 0"></div>
 
     <div id="agent-results"></div>
   </div>
@@ -731,9 +730,8 @@ let agentCurrentProvider = 'anthropic';
 function openAgent() {
   $('agent-overlay').classList.add('show');
   loadAgentSettings();
-  refreshAgentStatus();
-  refreshAutoStatus();
-  if (!agentPollTimer) agentPollTimer = setInterval(() => { refreshAgentStatus(); refreshAutoStatus(); }, 2500);
+  loadControlConfig();
+  if (!agentPollTimer) agentPollTimer = setInterval(refreshControl, 2500);
 }
 
 async function loadAgentSettings() {
@@ -809,159 +807,93 @@ function closeAgent() {
   if (agentPollTimer) { clearInterval(agentPollTimer); agentPollTimer = null; }
 }
 
-async function startAgent() {
+async function loadControlConfig() {
+  let status;
+  try {
+    const r = await fetch(API('/api/agent/control'));
+    status = await r.json();
+  } catch(e) { return; }
+  $('agent-max-iter').value = status.max_iterations || 3;
+  $('agent-ticks').value = status.ticks_per_iteration || 500;
+  $('auto-interval').value = status.interval_hours || 6;
+  renderControl(status);
+}
+
+async function refreshControl() {
+  let status;
+  try {
+    const r = await fetch(API('/api/agent/control'));
+    status = await r.json();
+  } catch(e) { return; }
+  renderControl(status);
+}
+
+async function saveControlConfig() {
   const maxIter = parseInt($('agent-max-iter').value) || 3;
   const ticks = parseInt($('agent-ticks').value) || 500;
-  const r = await fetch(API(`/api/agent/start?max_iterations=${maxIter}&ticks_per_iteration=${ticks}`), {method:'POST'});
-  const data = await r.json();
-  if (!data.ok) {
-    alert(data.message || 'Could not start agent');
-    return;
-  }
-  refreshAgentStatus();
-  if (!agentPollTimer) agentPollTimer = setInterval(refreshAgentStatus, 2500);
+  await fetch(API('/api/agent/control/config'), {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({max_iterations: maxIter, ticks_per_iteration: ticks}),
+  });
+  refreshControl();
+}
+
+async function runAgentNow() {
+  await fetch(API('/api/agent/control/run-now'), {method: 'POST'});
+  refreshControl();
 }
 
 async function stopAgent() {
-  await fetch(API('/api/agent/stop'), {method:'POST'});
-  refreshAgentStatus();
-}
-
-async function refreshAgentStatus() {
-  let status;
-  try {
-    const r = await fetch(API('/api/agent/status'));
-    status = await r.json();
-  } catch(e) {
-    return;
-  }
-  renderAgentStatus(status);
-}
-
-function renderAgentStatus(status) {
-  const badge = $('agent-status-badge');
-  const startBtn = $('agent-start-btn');
-  const stopBtn = $('agent-stop-btn');
-
-  if (status.running) {
-    badge.textContent = `running (${status.current_iteration}/${status.max_iterations})`;
-    badge.className = 'ai-badge running';
-    startBtn.disabled = true;
-    stopBtn.style.display = 'inline-block';
-  } else {
-    badge.textContent = status.error ? 'error' : 'idle';
-    badge.className = status.error ? 'ai-badge error' : 'ai-badge';
-    startBtn.disabled = false;
-    stopBtn.style.display = 'none';
-  }
-
-  const results = $('agent-results');
-  const errorBanner = status.error ? `<div class="agent-finding high">Agent error: ${escapeHtml(status.error)}</div>` : '';
-
-  const iterations = status.iterations || [];
-  if (!iterations.length) {
-    results.innerHTML = errorBanner || '<div style="color:#484f58;font-size:11px">No runs yet. Click Start to run the agent against the current code.</div>';
-    return;
-  }
-
-  results.innerHTML = errorBanner + iterations.map(renderAgentIteration).join('');
-}
-
-async function refreshAutoStatus() {
-  let status;
-  try {
-    const r = await fetch(API('/api/agent/auto/status'));
-    status = await r.json();
-  } catch(e) {
-    return;
-  }
-  renderAutoStatus(status);
-}
-
-function renderAutoStatus(status) {
-  $('auto-enabled').checked = status.enabled;
-  if (!status.enabled) {
-    $('auto-interval').value = status.interval_hours || 6;
-    $('auto-max-iter').value = status.max_iterations || 3;
-    $('auto-ticks').value = status.ticks_per_iteration || 500;
-  }
-
-  const badge = $('auto-status-badge');
-  if (status.enabled) {
-    badge.textContent = status.next_run_at ? `on — next run ${new Date(status.next_run_at).toLocaleString()}` : 'on';
-    badge.className = 'ai-badge running';
-  } else {
-    badge.textContent = 'off';
-    badge.className = 'ai-badge';
-  }
-
-  const history = (status.history || []).slice().reverse();
-  $('auto-history').innerHTML = history.length
-    ? history.map(h => {
-        const pushMsg = h.git_push ? escapeHtml(h.git_push.message || '') : '';
-        const pushed = h.git_push && h.git_push.pushed;
-        return `<div style="padding:3px 0;border-top:1px solid #21262d">
-          ${new Date(h.finished_at).toLocaleString()} — ${h.applied_any_change ? 'applied a change, restarted' : 'no change applied'}
-          ${h.applied_any_change ? `<span class="${pushed ? 'agent-applied yes' : 'agent-applied no'}" style="margin-left:6px">${pushed ? 'pushed' : 'not pushed'}</span>` : ''}
-          <div style="color:#484f58">${pushMsg}</div>
-        </div>`;
-      }).join('')
-    : '';
+  await fetch(API('/api/agent/control/stop'), {method: 'POST'});
+  refreshControl();
 }
 
 async function toggleAutoMode() {
   const enabled = $('auto-enabled').checked;
-  if (enabled) {
-    const interval = parseFloat($('auto-interval').value) || 6;
-    const maxIter = parseInt($('auto-max-iter').value) || 3;
-    const ticks = parseInt($('auto-ticks').value) || 500;
-    const r = await fetch(API(`/api/agent/auto/start?interval_hours=${interval}&max_iterations=${maxIter}&ticks_per_iteration=${ticks}`), {method:'POST'});
-    const data = await r.json();
-    if (!data.ok) {
-      alert(data.message || 'Could not enable autonomous mode');
-      $('auto-enabled').checked = false;
-      return;
-    }
-  } else {
-    await fetch(API('/api/agent/auto/stop'), {method:'POST'});
-  }
-  refreshAutoStatus();
+  const interval = parseFloat($('auto-interval').value) || 6;
+  await fetch(API('/api/agent/control/config'), {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({mode: enabled ? 'interval' : 'manual', interval_hours: interval}),
+  });
+  refreshControl();
 }
 
-function renderAgentIteration(it) {
-  const findings = (it.findings || []).map(f =>
-    `<div class="agent-finding ${f.severity}">[${f.severity}] <b>${escapeHtml(f.title)}</b>: ${escapeHtml(f.summary)}</div>`
-  ).join('');
-  const theoryFindings = (it.theory_findings || []).map(f =>
-    `<div class="agent-finding ${f.severity}">[${f.severity}] <b>${escapeHtml(f.theory)}</b> (${escapeHtml(f.citation)})<br>${escapeHtml(f.gap)}</div>`
-  ).join('');
+function renderControl(status) {
+  const badge = $('agent-status-badge');
+  const startBtn = $('agent-start-btn');
+  const stopBtn = $('agent-stop-btn');
+  const running = status.status === 'running';
 
-  const p = it.proposal || {};
-  let proposalHtml = `<div class="row"><span class="k">Hypothesis:</span> ${escapeHtml(p.hypothesis || '')}</div>
-    <div class="row"><span class="k">Action:</span> ${escapeHtml(p.action || 'none')} — ${escapeHtml(p.rationale || '')}</div>`;
-  if (p.action === 'parameter') {
-    proposalHtml += `<div class="row"><span class="k">Parameter:</span> ${escapeHtml(p.parameter_name || '')} = ${escapeHtml(String(p.parameter_value ?? ''))}</div>`;
-  } else if (p.action === 'code_edit' && p.old_string) {
-    proposalHtml += `<div class="row"><span class="k">old_string:</span></div><div class="agent-code">${escapeHtml(p.old_string)}</div>
-      <div class="row"><span class="k">new_string:</span></div><div class="agent-code">${escapeHtml(p.new_string || '')}</div>`;
+  badge.textContent = running ? 'running' : 'idle';
+  badge.className = running ? 'ai-badge running' : 'ai-badge';
+  startBtn.disabled = running;
+  stopBtn.style.display = running ? 'inline-block' : 'none';
+
+  $('auto-enabled').checked = status.mode === 'interval';
+  const autoBadge = $('auto-status-badge');
+  if (status.mode === 'interval') {
+    autoBadge.textContent = status.next_run_at ? `on — next run ${new Date(status.next_run_at).toLocaleString()}` : 'on';
+    autoBadge.className = 'ai-badge running';
+  } else {
+    autoBadge.textContent = 'off';
+    autoBadge.className = 'ai-badge';
   }
 
-  const applied = it.apply_result;
-  const appliedHtml = applied
-    ? `<div class="row agent-applied ${applied.applied ? 'yes' : 'no'}">applied: ${applied.applied} — ${escapeHtml(applied.message || '')}</div>`
-    : '';
+  const history = (status.history || []).slice().reverse();
+  $('agent-results').innerHTML = history.length
+    ? history.map(renderControlHistoryEntry).join('')
+    : '<div style="color:#484f58;font-size:11px">No runs yet. Click "Run Now", or the polling machine will run it on schedule once Autonomous Mode is on.</div>';
+}
 
-  const discoveryHtml = it.discovery_message
-    ? `<div class="row"><span class="k">Theory discovery:</span> ${escapeHtml(it.discovery_message)}${it.discovered_theory ? ` → registered "${escapeHtml(it.discovered_theory)}"` : ''}</div>`
-    : '';
-
+function renderControlHistoryEntry(h) {
+  const applied = h.applied_any_change;
+  const push = h.push || {};
+  const deploy = h.deploy || {};
   return `<div class="agent-iter">
-    <h3>Iteration ${it.iteration} — pop ${it.final_population ?? '?'}${it.audit_ok === false ? ' (audit failed)' : ''}</h3>
-    ${it.audit_error ? `<div class="agent-finding high">${escapeHtml(it.audit_error)}</div>` : ''}
-    ${findings}${theoryFindings}
-    ${discoveryHtml}
-    ${proposalHtml}
-    ${appliedHtml}
+    <h3>${new Date(h.finished_at || h.reported_at).toLocaleString()} — ${h.iterations ?? '?'} iteration(s)${applied ? ', change applied' : ', no change applied'}</h3>
+    ${applied ? `<div class="row agent-applied ${push.pushed ? 'yes' : 'no'}">push: ${push.pushed ? 'pushed' : 'not pushed'} — ${escapeHtml(push.message || '')}</div>
+    <div class="row agent-applied ${deploy.deployed ? 'yes' : 'no'}">deploy: ${deploy.deployed ? 'live' : 'not deployed'} — ${escapeHtml(deploy.message || '')}</div>` : ''}
+    ${h.summary ? `<div class="agent-code">${escapeHtml(h.summary)}</div>` : ''}
   </div>`;
 }
 

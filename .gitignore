@@ -2,3 +2,4 @@ __pycache__/
 *.pyc
 simulation/settings.json
 agents/simulation_scientist/agent_settings.json
+agents/simulation_scientist/agent_control.json

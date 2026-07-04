@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from . import advisor, discovery
 from .audit import analyze_live_experiment, build_report_from_live_runs
@@ -100,10 +100,15 @@ def run_autonomous_loop(
     seed_base: int = 1000,
     stop_on_extinction: bool = False,
     enable_theory_discovery: bool = True,
+    agent_settings: Optional[dict[str, Any]] = None,
+    should_stop: Optional[Callable[[], bool]] = None,
 ) -> LoopReport:
     report = LoopReport()
 
     for i in range(1, max_iterations + 1):
+        if should_stop is not None and should_stop():
+            break
+
         # 1. Deploy current local source to the sandbox
         files = {str(engine_path): "ocp/engine.py"}
         if ai_path is not None:
@@ -166,7 +171,7 @@ def run_autonomous_loop(
                     discovered_theory = disc.theory_name
 
         # 5. Ask the LLM advisor for exactly one next experiment
-        proposal = advisor.get_advice(report_dict, engine_path)
+        proposal = advisor.get_advice(report_dict, engine_path, settings=agent_settings)
 
         # 6. Apply it locally (no git operations — plain working-tree edit)
         apply_result = None
