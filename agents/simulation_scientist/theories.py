@@ -501,6 +501,50 @@ def _social_disorganization_compare(history, state):
     return None
 
 
+def _risk_pooling_and_mutual_aid_compare(history, state):
+    if len(history) < 20:
+        return None
+    # Focus on the last 20% of ticks (chronic pressure region)
+    tail = history[-max(20, len(history)//5):]
+    # Compute average pressure and average per-capita energy in tail
+    pressures = [t['pressure'] for t in tail]
+    energies = [t['avg_energy'] for t in tail]
+    avg_pressure = mean(pressures)
+    avg_energy = mean(energies)
+    # If pressure is not sustainably above 1.0, theory doesn't apply
+    if avg_pressure < 1.1:
+        return None
+    # Theory: if bonds enable risk pooling, average energy should stay above a simple
+    # individual‑foraging baseline. We approximate baseline as: if each agent only forages
+    # on their own (no sharing), the average energy would drop to near the minimum viable
+    # intake per tick. Let's use erosion_threshold_kcal (2000) as a proxy for that floor.
+    erosion_threshold = 2000.0
+    # Check if observed average energy is significantly above that floor
+    if avg_energy < erosion_threshold * 0.9:  # within 10% of floor — no buffering
+        return None
+    # Now check if the pressure plateau is unusually flat (low volatility) suggesting
+    # a social buffer, not raw Malthusian oscillation
+    pressure_volatility = pstdev(pressures) / avg_pressure if avg_pressure > 0 else 0
+    # If volatility is very low AND energy is above floor, that's a sign of risk pooling
+    if pressure_volatility < 0.15:
+        # Count bonds per resident in final snapshot
+        residents = state['residents']
+        if len(residents) == 0:
+            return None
+        avg_bonds = mean([r['bonds'] for r in residents])
+        # If average bonds > 1, there's enough network structure to enable mutual aid
+        if avg_bonds > 1.0:
+            return TheoryFinding(
+                theory="Risk Pooling and Mutual Aid (Solidarity Hypothesis)",
+                citation="Polanyi, Karl. The Great Transformation (1944); Scott, James C. The Moral Economy of the Peasant (1976)",
+                prediction="Under chronic resource pressure, agents with low individual calorie reserves will sustain higher average energy than individual foraging alone would allow, because redistribution via social bonds (gifts, sharing) buffers against stochastic shortfalls.",
+                gap=f"Observed: avg_tail_pressure={avg_pressure:.3f}, avg_energy={avg_energy:.1f} kcal, pressure_volatility={pressure_volatility:.3f}, avg_bonds={avg_bonds:.2f}. The plateau is flat and elevated above the individual-foraging floor, consistent with mutual aid but not explained by Malthusian dynamics or storage alone.",
+                severity="medium",
+                suggested_investigation="bond_redistribution_effect_on_energy_floor, gift_economy_parameters, inequality_gini_and_risk_pooling_efficiency"
+            )
+    return None
+
+
 LENSES: list[TheoryLens] = [
     TheoryLens("Malthusian population dynamics", "Malthus (1798)",
                "Population oscillates around carrying capacity under growth/check dynamics.",
@@ -529,6 +573,9 @@ LENSES: list[TheoryLens] = [
     TheoryLens("Social Disorganization Theory (collective efficacy / social capital)", "Shaw & McKay, Juvenile Delinquency and Urban Areas (1942); Sampson, Raudenbush & Earls, Neighborhoods and Violent Crime (Science, 1997)",
                "In a community where bonds are strong and numerous, collective efficacy (trust + willingness to intervene for the common good) should reduce internal predation and stabilize the population; a high average bond count but no visible raid/predation data suggests latent social capital that could be failing to function as a braking mechanism against deviance.",
                _social_disorganization_compare),
+    TheoryLens("Risk Pooling and Mutual Aid (Solidarity Hypothesis)", "Polanyi, Karl. The Great Transformation (1944); Scott, James C. The Moral Economy of the Peasant (1976)",
+               "Under chronic resource pressure, agents with low individual calorie reserves will sustain higher average energy than individual foraging alone would allow, because redistribution via social bonds (gifts, sharing) buffers against stochastic shortfalls, producing a flatter, elevated population plateau than pure carrying capacity would enforce.",
+               _risk_pooling_and_mutual_aid_compare),
 # AUTO-DISCOVERED LENSES REGISTERED BELOW THIS LINE — appended by discovery.py
 ]
 

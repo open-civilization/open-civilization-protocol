@@ -1147,6 +1147,9 @@ class Simulation:
                 # lapses, but ag_tech_mult (the technique itself) does not un-happen
                 if c.cultivation > 0:
                     c.cultivation = max(0.0, c.cultivation - CULTIVATION_DECAY)
+                # Leftover food decays (rots, eaten by scavengers, stolen by non-residents)
+                if c.leftover > 0:
+                    c.leftover = max(0.0, c.leftover - c.leftover * 0.05 * m)
 
         living = [r for r in self.residents if r.alive]
         random.shuffle(living)
