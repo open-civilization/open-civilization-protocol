@@ -433,6 +433,74 @@ def _henrich_demographic_cultural_loss_compare(history, state):
     return None
 
 
+def _linguistic_niche_compare(history, state):
+    if len(history) < 20:
+        return None
+    # get language_holders near beginning and end
+    early = history[min(19, len(history)//4)]
+    mid = history[len(history)//2]
+    late = history[-1]
+    early_pop = early.get('pop', 0)
+    late_pop = late.get('pop', 0)
+    early_lang = early.get('language_holders', 0)
+    late_lang = late.get('language_holders', 0)
+    # if population changed significantly, language should not simply track pop linearily
+    if early_pop * 0.8 > late_pop or late_pop > early_pop * 1.2:
+        return None  # pop changed significantly, check ratio change
+    # compute language holder proportion change
+    early_ratio = early_lang / max(early_pop, 1)
+    late_ratio = late_lang / max(late_pop, 1)
+    change = abs(early_ratio - late_ratio)
+    # If the ratio is very stable despite theory predicting simplification (decline in specialist holders), that's a gap
+    if change < 0.05 and early_ratio > 0.5 and late_ratio > 0.5:
+        # also check if writing is present - that is a complexity indicator
+        early_write = early.get('writing_holders', 0) / max(early_pop, 1)
+        late_write = late.get('writing_holders', 0) / max(late_pop, 1)
+        if late_write >= early_write * 0.8:  # writing is not being lost
+            return TheoryFinding(
+                theory='Linguistic niche hypothesis',
+                citation='Lupyan, G., & Dale, R. (2010). PLoS ONE, 5(1), e8559.',
+                prediction='Under stable high population, language complexity (specialist holders like writing) should decrease proportionally due to adult learning pressures.',
+                gap=f'Language proportions remain very stable (early {early_ratio:.2f}, late {late_ratio:.2f}) and writing is not declining ({early_write:.2f} -> {late_write:.2f}), contrary to the expected simplification in a large community with many adult learners.',
+                severity='medium'
+            )
+    return None
+
+
+def _social_disorganization_compare(history, state):
+    # Check average bond count from last 10 ticks of history
+    if len(history) < 10:
+        return None
+    recent = history[-10:]
+    # Estimate bond count from resident data in state (we can compute mean bonds from state.residents)
+    bond_counts = [r['bonds'] for r in state['residents']]
+    avg_bonds = mean(bond_counts) if bond_counts else 0.0
+    # check if bond count is moderately high (say > 2) and variance is low
+    if avg_bonds < 2:
+        # insufficient social ties to test theory
+        return None
+    # compute stdev to see if bonds are homogeneous
+    std_bonds = pstdev(bond_counts) if len(bond_counts) > 1 else 0.0
+    # now check population stability: volatility in pop over recent ticks
+    pop_vals = [h['pop'] for h in recent]
+    pop_volatility = pstdev(pop_vals) / mean(pop_vals) if mean(pop_vals) > 0 else 0.0
+    # also check if there is any trend of extreme inequality in bonds? maybe a proxy for disorganization
+    # Gini of bond counts? Use already available gini from latest history (but that's overall wealth/energy not bonds)
+    gini_latest = history[-1].get('gini', 0.5)
+    # If bond count is high (>2) and homogeneous (std < 1) but population volatility is also moderate (>0.02) or gini is high >0.6, then social disorganization predicted to produce conflict
+    # We'll just flag if bond avg > 2 and pop_volatility > 0.03: suggests social bonds aren't preventing disorder
+    # The theory says high social organization (many bonds, low inequality) = low crime, stable pop. If bonds are high but volatility still present => disorganization gap.
+    if avg_bonds > 2.0 and std_bonds < 2.0 and pop_volatility > 0.03:
+        return TheoryFinding(
+            theory="Social Disorganization Theory (collective efficacy / social capital)",
+            citation="Shaw & McKay 1942; Sampson, Raudenbush & Earls 1997",
+            prediction="High average bond count and low bond inequality should reduce internal predation, producing low population volatility; observed: bonds are dense but population still fluctuates.",
+            gap=f"avg_bonds={avg_bonds:.2f}, sd_bonds={std_bonds:.2f}, pop_volatility={pop_volatility:.3f} - social capital appears high but does not stabilize population as predicted.",
+            severity="medium"
+        )
+    return None
+
+
 LENSES: list[TheoryLens] = [
     TheoryLens("Malthusian population dynamics", "Malthus (1798)",
                "Population oscillates around carrying capacity under growth/check dynamics.",
@@ -455,6 +523,12 @@ LENSES: list[TheoryLens] = [
     TheoryLens("Cumulative cultural evolution bottleneck / Tasmanian effect", "Henrich, J. (2004). Demography and cultural evolution: why adaptive cultural systems can be maladaptive. American Antiquity, 69(2), 197-214.",
                "When population size falls below a critical threshold (typically ~250–300 individuals), the pool of knowledgeable individuals becomes too small to maintain complex, multi-step skills, leading to a net loss of adaptive cultural traits over time, even if the population later recovers.",
                _henrich_demographic_cultural_loss_compare),
+    TheoryLens("Linguistic niche hypothesis (specifically: population size and language complexity)", "Lupyan, G., & Dale, R. (2010). Language structure is partly determined by social structure. PLoS ONE, 5(1), e8559.",
+               "As a population grows and becomes more connected, language should become simpler (less morphological complexity) due to increased proportion of adult learners; here, language_holders should plateau or decline as pop stabilizes high, but instead it may remain constant or track population.",
+               _linguistic_niche_compare),
+    TheoryLens("Social Disorganization Theory (collective efficacy / social capital)", "Shaw & McKay, Juvenile Delinquency and Urban Areas (1942); Sampson, Raudenbush & Earls, Neighborhoods and Violent Crime (Science, 1997)",
+               "In a community where bonds are strong and numerous, collective efficacy (trust + willingness to intervene for the common good) should reduce internal predation and stabilize the population; a high average bond count but no visible raid/predation data suggests latent social capital that could be failing to function as a braking mechanism against deviance.",
+               _social_disorganization_compare),
 # AUTO-DISCOVERED LENSES REGISTERED BELOW THIS LINE — appended by discovery.py
 ]
 

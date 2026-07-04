@@ -668,9 +668,17 @@ def decide(r, grid, residents, tick, pressure=0.0):
     if r.health < 50 and r.energy > 600:
         return ('rest', None, None, None)
 
-    # REPRODUCE — fertility drops under Malthusian pressure
+    # REPRODUCE — fertility drops under Malthusian pressure; additionally, chronic malnutrition
+    # (measured by malnutrition_debt) directly suppresses individual fecundity even when energy
+    # is momentarily sufficient, reflecting real physiological depletion from past caloric stress.
     if r.energy > REPRODUCTION_ENERGY and r.age > REPRODUCTION_AGE:
         fertility = 1.0 if pressure < 1.0 else max(0.05, 1.0 - (pressure - 1.0) * 2.0)
+        # Malnutrition debt reduces fertility: a resident at full debt (100.0) has fertility halved
+        # Additionally, if malnutrition debt exceeds a critical threshold, reproduction is impossible
+        if r.malnutrition_debt > 60.0:
+            fertility = 0.0
+        else:
+            fertility *= max(0.5, 1.0 - (r.malnutrition_debt / NUTRITION_DEBT_CAP) * 0.5)
         if random.random() < fertility:
             partners = [(res, d) for res, d in near_res
                         if res.energy > REPRODUCTION_ENERGY and res.age > REPRODUCTION_AGE]
