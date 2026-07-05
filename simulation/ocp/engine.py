@@ -792,7 +792,7 @@ def decide(r, grid, residents, tick, pressure=0.0):
                 return _step_toward(r.x, r.y, p.x, p.y, grid)
 
     # SOCIAL
-    if r.traits.sociability > 0.5 and near_res and self._pressure > 1.0 and random.random() < 0.5:
+    if r.traits.sociability > 0.5 and near_res and pressure > 1.0 and random.random() < 0.5:
         t = random.choice(near_res)[0]
         if abs(t.x - r.x) + abs(t.y - r.y) <= 1:
             return ('interact', None, None, t.id)
