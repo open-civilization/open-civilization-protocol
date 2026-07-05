@@ -751,7 +751,7 @@ def decide(r, grid, residents, tick, pressure=0.0):
     # compete for the same depleted local patch. This is expansion into unclaimed
     # territory as a release valve, not a scripted settlement mechanic: the resident
     # simply moves toward the best food it can see within a wider search radius.
-    if pressure > 1.3 and r.energy < 1650 and random.random() < 0.20:
+    if pressure > 1.3 and r.energy < 1650 and random.random() < 0.40:
         wide_cells = _nearby_cells(r.x, r.y, radius + 4, grid)
         far_candidates = [(c, d) for c, d in wide_cells if d > radius and c.biomass > 15]
         if far_candidates:
