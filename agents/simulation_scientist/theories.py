@@ -582,6 +582,27 @@ def _social_network_stability_compare(history, state):
     return None
 
 
+def _social_network_theory_compare(history, state):
+    num_residents = len(state['residents'])
+    total_bonds = sum(resident['bonds'] for resident in state['residents'])
+    avg_bonds_per_resident = total_bonds / num_residents if num_residents > 0 else 0
+    threshold = 0.6  # Hypothetical threshold for social network resilience
+    if avg_bonds_per_resident < threshold:
+        return TheoryFinding(
+            run=None,
+            theory="Social Network Theory",
+            citation="Granovetter, M. S. (1973). The Strength of Weak Ties.",
+            prediction="Communities should show enhanced resilience and resource access through diverse and interconnected social networks.",
+            observed={
+                "avg_bonds_per_resident": avg_bonds_per_resident
+            },
+            gap="Total social bonds per resident indicate a limited social network, reducing resilience and resource access potential.",
+            severity="medium",
+            suggested_investigation="analyze_social_bond_structure"
+        )
+    return None
+
+
 LENSES: list[TheoryLens] = [
     TheoryLens("Malthusian population dynamics", "Malthus (1798)",
                "Population oscillates around carrying capacity under growth/check dynamics.",
@@ -616,6 +637,9 @@ LENSES: list[TheoryLens] = [
     TheoryLens("Social Network Theory", "Borgatti, S. P., & Halgin, D. S. (2011). Analyzing Affiliation Networks. In The Sage Handbook of Social Network Analysis.",
                "Tightly connected social networks should maintain stability and resilience in resource-challenged environments, leading to lower volatility in population dynamics despite high carrying capacity pressure.",
                _social_network_stability_compare),
+    TheoryLens("Social Network Theory", "Granovetter, M. S. (1973). The Strength of Weak Ties.",
+               "Communities should show enhanced resilience and resource access through diverse and interconnected social networks, impacting their survival and reproduction rates.",
+               _social_network_theory_compare),
 # AUTO-DISCOVERED LENSES REGISTERED BELOW THIS LINE — appended by discovery.py
 ]
 

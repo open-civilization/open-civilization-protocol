@@ -672,7 +672,7 @@ def decide(r, grid, residents, tick, pressure=0.0):
     # (measured by malnutrition_debt) directly suppresses individual fecundity even when energy
     # is momentarily sufficient, reflecting real physiological depletion from past caloric stress.
     if r.energy > REPRODUCTION_ENERGY and r.age > REPRODUCTION_AGE:
-        fertility = 1.0 if pressure < 1.0 else max(0.05, 1.0 - (pressure - 1.0) * 2.0)
+        fertility = max(0.0, 1.0 - (pressure - 1.0) * 0.5)
         # Malnutrition debt reduces fertility: a resident at full debt (100.0) has fertility halved
         # Additionally, if malnutrition debt exceeds a critical threshold, reproduction is impossible
         if r.malnutrition_debt > 60.0:
