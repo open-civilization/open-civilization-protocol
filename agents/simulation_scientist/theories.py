@@ -829,6 +829,32 @@ def _ostrom_1990_compare(history, state):
     return None
 
 
+def _broken_windows_theory_compare(history, state):
+    avg_bonds = mean(resident['bonds'] for resident in state['residents'])
+    avg_pressure = mean(record['pressure'] for record in history)
+    avg_energy = mean(record['avg_energy'] for record in history)
+    
+    # Establish a threshold for bond count related to pressure levels
+    bonding_threshold = 0.1
+    pressure_threshold = 1.2
+    energy_threshold = 2000.0
+    
+    if avg_bonds < bonding_threshold and avg_pressure > pressure_threshold and avg_energy < energy_threshold:
+        return TheoryFinding(
+            theory='Broken Windows Theory',
+            citation='Wilson, J. Q., & Kelling, G. L. (1982)',
+            prediction='In conditions of neglect and resource scarcity, diminished social bonds and increased pressure may further destabilize social cohesion.',
+            observed={
+                'avg_bonds': avg_bonds,
+                'avg_pressure': avg_pressure,
+                'avg_energy': avg_energy
+            },
+            gap='Low average bond count, high population pressure, and low average energy suggest the presence of social disorder and decay, indicating that norms supporting cohesion are failing.',
+            severity='critical'
+        )
+    return None
+
+
 LENSES: list[TheoryLens] = [
     TheoryLens("Malthusian population dynamics", "Malthus (1798)",
                "Population oscillates around carrying capacity under growth/check dynamics.",
@@ -899,6 +925,9 @@ LENSES: list[TheoryLens] = [
     TheoryLens("Communal Resource Management Theory", "Ostrom, E. (1990), Governing the Commons: The Evolution of Institutions for Collective Action",
                "In situations of shared resource management, durable groups should develop social norms and organizational strategies that promote cooperation and resource sustainability, particularly in the face of collective stressors.",
                _ostrom_1990_compare),
+    TheoryLens("Broken Windows Theory", "Wilson, J. Q., & Kelling, G. L. (1982)",
+               "In environments characterized by neglect and limited resources, small signs of disorder can lead to increased social decay and diminished social bonds, exacerbating the population's challenges in cohesion and resilience.",
+               _broken_windows_theory_compare),
 # AUTO-DISCOVERED LENSES REGISTERED BELOW THIS LINE — appended by discovery.py
 ]
 
