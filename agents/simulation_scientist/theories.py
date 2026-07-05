@@ -698,6 +698,31 @@ def _social_coordination_compare(history, state):
     return None
 
 
+def _social_cohesion_compare(history, state):
+    # Calculate average bonds per resident
+    total_bonds = sum(resident['bonds'] for resident in state['residents'])
+    avg_bonds = total_bonds / len(state['residents']) if state['residents'] else 0
+    
+    # Calculate average pressure
+    avg_pressure = mean(entry['pressure'] for entry in history)
+    
+    # Prediction check: high pressure should correlate with higher bonds
+    if avg_pressure > 1.25 and avg_bonds < 1:
+        return TheoryFinding(
+            theory='Social Cohesion Theory',
+            citation='Durkheim, E. (1893), The Division of Labor in Society',
+            prediction='In conditions of high resource pressure, individuals will establish and strengthen social ties to promote group survival, leading to increased cooperation and reduced tension within the population.',
+            observed={
+                'avg_bonds': avg_bonds,
+                'avg_pressure': avg_pressure
+            },
+            gap='Despite high resource pressure, the average bond count is low, indicating insufficient social cohesion expected during such stress.',
+            severity='high',
+            suggested_investigation='factors_affecting_social_cohesion_under_pressure'
+        )
+    return None
+
+
 LENSES: list[TheoryLens] = [
     TheoryLens("Malthusian population dynamics", "Malthus (1798)",
                "Population oscillates around carrying capacity under growth/check dynamics.",
@@ -750,6 +775,9 @@ LENSES: list[TheoryLens] = [
     TheoryLens("Social Coordination Theory", "Coleman, James S., 'Foundations of Social Theory', 1990",
                "Sustained cooperation among residents can increase overall resilience and adaptability in the face of resource pressures instead of leading to oscillatory population dynamics.",
                _social_coordination_compare),
+    TheoryLens("Social Cohesion Theory", "Durkheim, E. (1893), The Division of Labor in Society",
+               "In conditions of high resource pressure, individuals will establish and strengthen social ties to promote group survival, leading to increased cooperation and reduced tension within the population.",
+               _social_cohesion_compare),
 # AUTO-DISCOVERED LENSES REGISTERED BELOW THIS LINE — appended by discovery.py
 ]
 
