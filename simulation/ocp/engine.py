@@ -202,7 +202,7 @@ FIDELITY_WRITTEN = 0.95     # writing: symbolic external memory, near-lossless e
 LANGUAGE_GROUP_SIZE = 2              # must be embedded in a real, sustained group
 LANGUAGE_BOND_THRESHOLD = 0.2        # this specific relationship must carry real cooperative value
 LANGUAGE_REPEAT_THRESHOLD = 3        # repeated game — interacted with this individual several times
-LANGUAGE_PRESSURE_THRESHOLD = 0.6    # environmental uncertainty/scarcity creates coordination payoff
+LANGUAGE_PRESSURE_THRESHOLD = 0.05    # environmental uncertainty/scarcity creates coordination payoff
 LANGUAGE_DISCOVERY_CHANCE = 0.02     # per qualifying interaction
 LANGUAGE_COOPERATION_BONUS = 4.0     # multiplier when the interaction was an actual cooperative act
 
@@ -927,14 +927,14 @@ def _maybe_discover_language(r, target, tick, pressure, cooperative=False):
     repeated game, and coordination pressure together (see constants above); an actual
     cooperative act (food sharing) is the strongest signal and gets a chance bonus over
     passive contact."""
-    if 'spoken_language' in r.known_knowledge:
+    if 'spoken_language' not in r.known_knowledge and random.random() < LANGUAGE_DISCOVERY_CHANCE:
         return None
     if len(r.bonds) < LANGUAGE_GROUP_SIZE:
         return None
     bond = r.bonds[target.id]
     if bond.quality < LANGUAGE_BOND_THRESHOLD or bond.interactions < LANGUAGE_REPEAT_THRESHOLD:
         return None
-    if pressure < LANGUAGE_PRESSURE_THRESHOLD or r.traits.sociability > 0.4:
+    if pressure < LANGUAGE_PRESSURE_THRESHOLD:
         return None
     chance = LANGUAGE_DISCOVERY_CHANCE * (1 + (pressure - 1) * 0.5) * (LANGUAGE_COOPERATION_BONUS if cooperative else 1.0)
     if random.random() < chance:
