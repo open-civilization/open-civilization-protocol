@@ -235,13 +235,17 @@ Sexual reproduction, mate selection, and kinship complexity MAY be deferred to P
 
 ### Fertility Suppression Under Pressure
 
-When population pressure exceeds 0.8, reproduction probability declines:
+Reproduction probability is suppressed by two independent signals — ambient population pressure (acute, environment-wide) and each individual's own accumulated malnutrition debt (chronic, personal history):
 
 ```text
-fertility = 1.0 / (1.0 + (pressure − 0.8) × 5)
+fertility = max(0.0, 1.0 − (pressure − 1.0) × 0.5)
+if malnutrition_debt > 60.0:
+    fertility = 0.0
+else:
+    fertility *= max(0.5, 1.0 − (malnutrition_debt / NUTRITION_DEBT_CAP) × 0.5)
 ```
 
-At pressure 1.0, fertility is ~50% of baseline. At pressure 1.5, fertility drops to ~22%. This models reduced fecundity under nutritional stress and is a key mechanism preventing unchecked population overshoot beyond carrying capacity.
+Below pressure 1.0 the first term alone would exceed 1.0 (always fertile); it declines linearly above that, reaching zero at pressure 3.0. Independently, a resident whose malnutrition debt has crossed 60 (of a 100 cap) cannot reproduce at all regardless of current pressure or momentary energy surplus — chronic nutritional stress, not just this tick's caloric reserve, is what suppresses fecundity, mirroring the same debt-driven mechanism that governs Age Decline (see Mortality Factors below).
 
 ## Aging and Death
 
@@ -280,6 +284,7 @@ Starvation is modeled as a direct, graduated function of caloric reserve (see RF
 
 - When population pressure exceeds 1.0, ALL residents lose health at `5.0 × (pressure − 1.0)²` per tick.
 - This represents chronic food shortage affecting the entire population, not just those who have completely run out of energy.
+- On top of this steady erosion, each tick under pressure carries an independent `(pressure − 1.0) × 0.1` chance of a sudden additional 10–35 health loss — an acute overcrowding-mortality event (disease outbreaks, accidents, violence incidental to crowding) layered on top of the smooth chronic term, rather than malnutrition being purely gradual.
 
 #### Disease
 
@@ -397,16 +402,20 @@ When multiple hungry residents compete for scarce food on the same cell (biomass
 
 ### Raiding
 
-Raiding is a desperate survival behavior triggered when a resident is starving (energy < 18) with no local food available:
+Raiding is a desperate survival behavior triggered when a resident is starving (energy < 540 kcal — see RFC-0002 for the kcal-scale energy model) with no local food available (biomass < 3 and leftover < 2 on the current cell):
 
-- The resident attacks an adjacent resident who has more energy (> 30).
-- Raid probability: `0.3 + risk_tolerance × 0.5 + max(0, (pressure − 1.2) × 0.2)`
-- This means raiding probability increases sharply when population pressure exceeds 1.2, providing a safety valve for overpopulation crises.
+- The resident attacks an adjacent resident who has more energy (> 900 kcal).
+- Raid probability: `0.3 + risk_tolerance × 0.5`, plus `0.25 × (pressure − 1.2)` when pressure exceeds 1.2 — but only for residents with sociability < 0.5. Highly social residents (sociability ≥ 0.5) do not get this pressure-driven boost to their raid probability; overcrowding pushes the anti-social toward violence disproportionately, not the population uniformly.
+- **Targeting is relatedness-biased (Hamilton's rule)**: relatedness is computed via `parent_id` (parent-child or full siblings both count as relatedness 0.5; everyone else 0.0). Below pressure 1.5, a raider prefers a stranger — someone with no positive bond and relatedness < 0.25 — over a raid target from among its own bonded relationships or kin, if any qualifying stranger is adjacent. At or above pressure 1.5, that bias collapses and any adjacent higher-energy resident is fair game, sorted by relatedness (least-related preferred) rather than filtered — representing conflict breaking out even within one's own established relationships once scarcity is severe enough. This targeting logic is purely individual-level bond/relatedness bias; RFC-0007 explicitly avoids an engine-authored Group/War object, so there is no faction-level conflict model, only this per-resident preference.
 - If the raider wins (strength contest with randomness): steals up to 40% of victim's energy, victim takes 5–18 damage.
 - If the raider loses: takes 10–28 damage.
 - Raiding degrades social bonds between attacker and victim.
 
 Raiding becomes frequent during high-pressure periods (pressure > 1.4), creating visible conflict cycles and food redistribution under scarcity.
+
+### General Migration (Malthusian Release Valve)
+
+Beyond winter-driven migration toward warmer zones, sustained high population pressure (> 1.3) combined with real hunger (energy < 1650 kcal) gives any resident a 20%-per-tick chance to instead move toward the best food it can see within a much wider search radius (`view radius + 4` cells) — spreading out into unclaimed, less-crowded territory rather than only competing or raiding locally. This is emergent spatial redistribution from individual foraging decisions, not a scripted settlement mechanic, and together with raiding forms the two release valves (flight and fight) that keep Malthusian overshoot from being resolved by mortality alone (see RFC-0007).
 
 ## Memory
 

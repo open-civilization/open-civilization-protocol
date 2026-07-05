@@ -361,7 +361,11 @@ This RFC is subordinate to RFC-0001 Universe Constitution.
 
 A good Phase 1 knowledge system would include:
 
-- per-resident knowledge store with bounded capacity
+- per-resident knowledge store with bounded capacity (**implemented** — see RFC-0004's
+  Cognition Model: `Resident.knowledge_capacity()` bounds distinct knowledge domains,
+  scaled by the heritable intelligence trait and raised by writing; when a resident learns
+  something new at capacity, the weakest-held domain is forgotten to make room, and
+  teaching/learning each cost energy directly rather than being free actions)
 - spatial and procedural knowledge types
 - observation and imitation as primary acquisition pathways
 - time-based knowledge decay
