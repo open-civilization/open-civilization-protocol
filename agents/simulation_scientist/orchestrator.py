@@ -71,6 +71,21 @@ def _is_due(control: dict[str, Any]) -> bool:
     return False
 
 
+def _pull_latest(repo_root: Path) -> dict[str, Any]:
+    """Fast-forward only — this machine may not be the only one pushing to main
+    (another operator's poller, or a human, can land commits between our
+    cycles). A plain, unconditional push after editing a stale checkout would
+    silently overwrite whatever they landed; refusing to proceed on a failed
+    fast-forward is safer than guessing how to reconcile."""
+    fetch = _git(repo_root, "fetch", "origin", "main")
+    if fetch.returncode != 0:
+        return {"ok": False, "message": f"git fetch failed: {fetch.stderr[-500:]}"}
+    pull = _git(repo_root, "merge", "--ff-only", "origin/main")
+    if pull.returncode != 0:
+        return {"ok": False, "message": f"git merge --ff-only failed: {pull.stderr[-500:]}"}
+    return {"ok": True, "message": "Up to date with origin/main."}
+
+
 def run_once(
     client: ControlClient,
     target: DeployTarget,
@@ -89,6 +104,20 @@ def run_once(
         return False
 
     started_at = _now_iso()
+
+    sync = _pull_latest(repo_root)
+    if not sync["ok"]:
+        client.report_run({
+            "started_at": started_at,
+            "finished_at": _now_iso(),
+            "iterations": 0,
+            "applied_any_change": False,
+            "summary": f"Aborted before running: could not sync with origin/main — {sync['message']}",
+            "push": {"pushed": False, "message": "Skipped — sync failed."},
+            "deploy": {"deployed": False, "message": "Skipped — sync failed."},
+        })
+        return True
+
     agent_settings = client.get_settings()
 
     report = run_autonomous_loop(
@@ -108,18 +137,25 @@ def run_once(
     deploy_result: dict[str, Any] = {"deployed": False, "message": "No change applied this run."}
     if applied_any:
         push_result = _commit_and_push(repo_root, engine_path, ai_path)
-        files = {str(engine_path): "ocp/engine.py"}
-        if ai_path is not None and ai_path.exists():
-            files[str(ai_path)] = "ocp/ai.py"
-        try:
-            deploy_files(target, files)
-            restart_result = restart_server(target)
-            deploy_result = {
-                "deployed": restart_result.started,
-                "message": restart_result.startup_errors or "Deployed and restarted successfully.",
-            }
-        except Exception as exc:  # noqa: BLE001 - surface, never crash the poller over a deploy hiccup
-            deploy_result = {"deployed": False, "message": f"Final deploy failed: {exc!r}"}
+        if not push_result["pushed"]:
+            # Don't publish code to the sandbox that isn't actually reflected in git —
+            # that defeats the point of git being the source of truth, and a failed
+            # push here usually means another operator landed a conflicting commit
+            # since our pull above (a real, if narrow, race).
+            deploy_result = {"deployed": False, "message": f"Skipped — push failed: {push_result['message']}"}
+        else:
+            files = {str(engine_path): "ocp/engine.py"}
+            if ai_path is not None and ai_path.exists():
+                files[str(ai_path)] = "ocp/ai.py"
+            try:
+                deploy_files(target, files)
+                restart_result = restart_server(target)
+                deploy_result = {
+                    "deployed": restart_result.started,
+                    "message": restart_result.startup_errors or "Deployed and restarted successfully.",
+                }
+            except Exception as exc:  # noqa: BLE001 - surface, never crash the poller over a deploy hiccup
+                deploy_result = {"deployed": False, "message": f"Final deploy failed: {exc!r}"}
 
     client.report_run({
         "started_at": started_at,
