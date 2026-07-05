@@ -743,6 +743,56 @@ def _moral_economy_compare(history, state):
     return None
 
 
+def _collective_efficacy_compare(history, state):
+    # Initialize variables to track the metrics
+    total_population = 0
+    total_bonds = 0
+    tick_count = 0
+
+    for tick in history:
+        total_population += tick['pop']
+        total_bonds += sum(resident['bonds'] for resident in state['residents'])
+        tick_count += 1
+
+    if tick_count == 0:
+        return None  # No data to analyze
+
+    avg_population = total_population / tick_count if tick_count > 0 else 0
+    avg_bonds = total_bonds / len(state['residents']) if len(state['residents']) > 0 else 0
+
+    # If the average bonds are low relative to population, it indicates low collective efficacy
+    if avg_bonds < 1:
+        return TheoryFinding(
+            theory='Collective Efficacy',
+            observation='Average bonds per resident are below 1, indicating weak social cohesion.',
+            prediction='This suggests a lack of collective efficacy contributing to extinction rates in the simulation.'
+        )
+    return None
+
+
+def _self_determination_theory_compare(history, state):
+    # Check the last tick for population data
+    last_tick = history[-1] if history else None
+    if last_tick:
+        total_population = last_tick['pop']
+        avg_health = last_tick['avg_health']
+        avg_energy = last_tick['avg_energy']
+        bonds_count = sum(resident['bonds'] for resident in state['residents'])
+        # Determine the relative health and energy states
+        if (total_population == 0) or (avg_health < 0.5 and avg_energy < 0.5):
+            return TheoryFinding(
+                name='Self-Determination Theory Gap',
+                finding='A significant gap exists as the population failed to thrive, indicating potential unmet psychological needs among residents.',
+                evidence={
+                    'total_population': total_population,
+                    'avg_health': avg_health,
+                    'avg_energy': avg_energy,
+                    'bonds_count': bonds_count
+                }
+            )
+    return None
+
+
 LENSES: list[TheoryLens] = [
     TheoryLens("Malthusian population dynamics", "Malthus (1798)",
                "Population oscillates around carrying capacity under growth/check dynamics.",
@@ -801,6 +851,12 @@ LENSES: list[TheoryLens] = [
     TheoryLens("Theory of Moral Economy", "E.P. Thompson, 'The Making of the English Working Class', 1963",
                "In contexts of acute resource scarcity, communities will adhere to norms around fairness and mutual aid, preventing the emergence of exploitative behaviors despite high competition for resources.",
                _moral_economy_compare),
+    TheoryLens("Collective Efficacy", "Robert J. Sampson, et al., 'Neighborhoods and Violent Crime: A Multilevel Study of Collective Efficacy', 1997",
+               "Higher levels of collective efficacy within the community will correspond to increased survivability and population stability, while a lack of collective efficacy will result in collapse and extinction.",
+               _collective_efficacy_compare),
+    TheoryLens("Self-Determination Theory", "Deci, E. L., & Ryan, R. M. (1985). Intrinsic Motivation and Self-Determination in Human Behavior.",
+               "Residents will thrive and reproduce effectively when their innate psychological needs for autonomy, competence, and relatedness are met.",
+               _self_determination_theory_compare),
 # AUTO-DISCOVERED LENSES REGISTERED BELOW THIS LINE — appended by discovery.py
 ]
 

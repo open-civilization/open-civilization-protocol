@@ -202,8 +202,8 @@ NIGHT_LOSS_FACTOR = 1.2
 # (reserve in the death-zone band). Colder zones and seasons push residents into this
 # state far more often, so these technologies emerge first and fastest exactly where they
 # matter — no separate zone gate is needed beyond the caloric-crisis condition itself.
-SHELTER_DISCOVERY_CHANCE = 0.05   # per winter tick spent in caloric crisis
-CLOTHING_DISCOVERY_CHANCE = 0.05  # per winter tick spent in caloric crisis
+SHELTER_DISCOVERY_CHANCE = 0.10   # per winter tick spent in caloric crisis
+CLOTHING_DISCOVERY_CHANCE = 0.10  # per winter tick spent in caloric crisis
 FIRE_DISCOVERY_CHANCE = 0.04      # per winter tick spent in caloric crisis
 SHELTER_UPKEEP_REDUCTION = 0.3    # shelter blunts environmental exposure, day and night
 CLOTHING_UPKEEP_REDUCTION = 0.25  # clothing reduces personal metabolic loss, uniformly
@@ -234,7 +234,7 @@ FIDELITY_WRITTEN = 0.95     # writing: symbolic external memory, near-lossless e
 LANGUAGE_GROUP_SIZE = 2              # must be embedded in a real, sustained group
 LANGUAGE_BOND_THRESHOLD = 0.1        # this specific relationship must carry real cooperative value
 LANGUAGE_REPEAT_THRESHOLD = 3        # repeated game — interacted with this individual several times
-LANGUAGE_PRESSURE_THRESHOLD = 0.02    # environmental uncertainty/scarcity creates coordination payoff
+LANGUAGE_PRESSURE_THRESHOLD = 0.01    # environmental uncertainty/scarcity creates coordination payoff
 LANGUAGE_DISCOVERY_CHANCE = 0.02     # per qualifying interaction
 LANGUAGE_COOPERATION_BONUS = 4.0     # multiplier when the interaction was an actual cooperative act
 
@@ -283,7 +283,7 @@ def _ag_tech_mult(r):
     return mult
 
 
-def _transmission_fidelity(speaker):
+def _transmission_fidelity(speaker, pressure):
     """Best available channel fidelity for knowledge originating from `speaker`,
     combining independent channels (writing + oral) via redundant-channel recovery."""
     has_writing = 'writing' in speaker.known_knowledge
@@ -751,7 +751,7 @@ def decide(r, grid, residents, tick, pressure=0.0):
     # compete for the same depleted local patch. This is expansion into unclaimed
     # territory as a release valve, not a scripted settlement mechanic: the resident
     # simply moves toward the best food it can see within a wider search radius.
-    if pressure > 1.3 and r.energy < 1650 and random.random() < 0.12:
+    if pressure > 1.3 and r.energy < 1650 and random.random() < 0.20:
         wide_cells = _nearby_cells(r.x, r.y, radius + 4, grid)
         far_candidates = [(c, d) for c, d in wide_cells if d > radius and c.biomass > 15]
         if far_candidates:
@@ -1073,7 +1073,7 @@ def _do_interact(r, target_id, residents, tick, pressure=0.0):
         return lang_msg or f'{r.name} shared food with {target.name}'
 
     # Exchange spatial memory (with distortion per RFC-0001 Law 6)
-    r.bonds[target.id].quality = min(1.0, r.bonds[target.id].quality + 0.05)
+    r.bonds[target.id].quality = min(1.0, r.bonds[target.id].quality + 0.1)
     if r.memory and random.random() < 0.5:
         mem = random.choice(r.memory)
         distorted = MemEntry(mem.x, mem.y, mem.biomass * random.uniform(0.7, 1.3), tick)
