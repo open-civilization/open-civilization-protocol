@@ -808,6 +808,27 @@ def _cognitive_load_theory_compare(history, state):
     return None
 
 
+def _ostrom_1990_compare(history, state):
+    max_bonds = max(resident['bonds'] for resident in state['residents'])
+    avg_pressure = mean(metric['pressure'] for metric in history)
+    effectiveness_criterion = 5  # Threshold for effective social cohesion
+    # Observation of resilience in governance systems under collective pressure
+    if max_bonds < effectiveness_criterion and avg_pressure > 1.2:
+        return TheoryFinding(
+            theory='Communal Resource Management Theory',
+            citation='Ostrom, E. (1990), Governing the Commons: The Evolution of Institutions for Collective Action',
+            prediction='Durable groups should develop norms promoting cooperation when under resource pressure.',
+            observed={
+                'max_bonds': max_bonds,
+                'avg_pressure': avg_pressure
+            },
+            gap='The maximum bond count is insufficient for effective collective action and cooperation despite high resource pressure.',
+            severity='high',
+            suggested_investigation='examine_social_norms_and_organizational_effectiveness'
+        )
+    return None
+
+
 LENSES: list[TheoryLens] = [
     TheoryLens("Malthusian population dynamics", "Malthus (1798)",
                "Population oscillates around carrying capacity under growth/check dynamics.",
@@ -875,6 +896,9 @@ LENSES: list[TheoryLens] = [
     TheoryLens("Cognitive Load Theory", "Sweller, J. (1988)",
                "As cognitive load increases due to resource scarcity or environmental challenges, social bonding becomes less likely, resulting in fewer social structures and weaker community ties.",
                _cognitive_load_theory_compare),
+    TheoryLens("Communal Resource Management Theory", "Ostrom, E. (1990), Governing the Commons: The Evolution of Institutions for Collective Action",
+               "In situations of shared resource management, durable groups should develop social norms and organizational strategies that promote cooperation and resource sustainability, particularly in the face of collective stressors.",
+               _ostrom_1990_compare),
 # AUTO-DISCOVERED LENSES REGISTERED BELOW THIS LINE — appended by discovery.py
 ]
 
