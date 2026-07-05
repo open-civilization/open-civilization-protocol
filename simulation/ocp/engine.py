@@ -792,7 +792,7 @@ def decide(r, grid, residents, tick, pressure=0.0):
                 return _step_toward(r.x, r.y, p.x, p.y, grid)
 
     # SOCIAL
-    if r.traits.sociability > 0.5 and near_res and random.random() < 0.3:
+    if r.traits.sociability > 0.5 and near_res and self._pressure > 1.0 and random.random() < 0.5:
         t = random.choice(near_res)[0]
         if abs(t.x - r.x) + abs(t.y - r.y) <= 1:
             return ('interact', None, None, t.id)
@@ -1024,9 +1024,9 @@ def _maybe_discover_language(r, target, tick, pressure, cooperative=False):
     if len(r.bonds) < LANGUAGE_GROUP_SIZE:
         return None
     bond = r.bonds[target.id]
-    if bond.quality < LANGUAGE_BOND_THRESHOLD + 0.2 or bond.interactions < LANGUAGE_REPEAT_THRESHOLD:
+    if bond.quality < LANGUAGE_BOND_THRESHOLD or bond.interactions < LANGUAGE_REPEAT_THRESHOLD:
         return None
-    if pressure < LANGUAGE_PRESSURE_THRESHOLD * 0.5:
+    if pressure < LANGUAGE_PRESSURE_THRESHOLD * 0.8:
         return None
     chance = LANGUAGE_DISCOVERY_CHANCE * (1 + (pressure - 1) * 0.5) * (LANGUAGE_COOPERATION_BONUS if cooperative else 1.0)
     if random.random() < chance:
