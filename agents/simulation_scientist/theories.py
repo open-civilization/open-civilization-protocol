@@ -603,6 +603,41 @@ def _social_network_theory_compare(history, state):
     return None
 
 
+def _social_construction_compare(history, state):
+    population = state['residents']
+    avg_bonds = mean([resident['bonds'] for resident in population])
+    pressure = mean([entry['pressure'] for entry in history])
+
+    # If social bonds are high and population pressure is high, a gap in social resilience may exist
+    if avg_bonds > 200 and pressure > 1.2:
+        return TheoryFinding(
+            theory='Social Construction of Reality',
+            citation='Berger, P. L., & Luckmann, T. The Social Construction of Reality: A Treatise in the Sociology of Knowledge (1966)',
+            prediction='High collective understanding of environmental challenges should lead to adaptive practices rather than persistent overshoot.',
+            observed={'avg_bonds': avg_bonds, 'pressure': pressure},
+            gap='Despite high bonding, the population is experiencing sustained resource pressure without anticipated adaptive social behaviors, indicating a failure in perceived reality leading to maladaptive strategies.',
+            severity='high'
+        )
+    return None
+
+
+def _social_conflict_theory_compare(history, state):
+    pressure_threshold = 1.1
+    avg_pressure = mean([h['pressure'] for h in history])
+    if avg_pressure < pressure_threshold:
+        return None
+    total_bonds = sum(resident['bonds'] for resident in state['residents'])
+    insufficient_bonds = total_bonds < (len(state['residents']) * 0.5)
+    if insufficient_bonds:
+        return TheoryFinding(
+            theory_name='Social Conflict Theory',
+            description='Community cohesion is breaking down under resource pressure.',
+            supporting_evidence={'avg_pressure': avg_pressure, 'total_bonds': total_bonds},
+            predicted_outcome='Increased conflict and instability due to insufficient social bonds.',
+        )
+    return None
+
+
 LENSES: list[TheoryLens] = [
     TheoryLens("Malthusian population dynamics", "Malthus (1798)",
                "Population oscillates around carrying capacity under growth/check dynamics.",
@@ -640,6 +675,12 @@ LENSES: list[TheoryLens] = [
     TheoryLens("Social Network Theory", "Granovetter, M. S. (1973). The Strength of Weak Ties.",
                "Communities should show enhanced resilience and resource access through diverse and interconnected social networks, impacting their survival and reproduction rates.",
                _social_network_theory_compare),
+    TheoryLens("Social Construction of Reality", "Berger, P. L., & Luckmann, T. The Social Construction of Reality: A Treatise in the Sociology of Knowledge (1966)",
+               "The way that populations perceive, interpret, and collectively understand their environment will shape their social practices and population dynamics, potentially stabilizing behaviors even in the face of resource shortages.",
+               _social_construction_compare),
+    TheoryLens("Social Conflict Theory", "Karl Marx, 'The Communist Manifesto', 1848",
+               "The theory predicts that competition over limited resources will create social conflicts, leading to fissures in community cohesion and a potential for societal collapse.",
+               _social_conflict_theory_compare),
 # AUTO-DISCOVERED LENSES REGISTERED BELOW THIS LINE — appended by discovery.py
 ]
 

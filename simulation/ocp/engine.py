@@ -625,7 +625,7 @@ def decide(r, grid, residents, tick, pressure=0.0):
             # Below extreme pressure, prefer seizing from strangers over one's own
             # established relationships or kin; only true crisis (pressure >= 2.0) erodes that
             # Raise pressure threshold for raiding relatives (kin discount per Hamilton's rule)
-            pool = strangers if (strangers and pressure < 2.0) else adjacent
+            pool = strangers if (strangers and pressure < 1.5) else adjacent
             if pool is adjacent:
                 # Even among all adjacent, prefer lower-relatedness targets when pressure is moderate
                 pool.sort(key=lambda x: relatedness(r, x[0]))
@@ -936,7 +936,7 @@ def _maybe_discover_language(r, target, tick, pressure, cooperative=False):
         return None
     if pressure < LANGUAGE_PRESSURE_THRESHOLD or r.traits.sociability > 0.4:
         return None
-    chance = LANGUAGE_DISCOVERY_CHANCE * (LANGUAGE_COOPERATION_BONUS if cooperative else 1.0)
+    chance = LANGUAGE_DISCOVERY_CHANCE * (1 + (pressure - 1) * 0.5) * (LANGUAGE_COOPERATION_BONUS if cooperative else 1.0)
     if random.random() < chance:
         origin = 'during_cooperation' if cooperative else 'through_repeated_contact'
         r.known_knowledge['spoken_language'] = {
@@ -1244,6 +1244,8 @@ class Simulation:
             if self._pressure > 1.0:
                 malnutrition = 5.0 * (self._pressure - 1.0) ** 2
                 r.health -= malnutrition
+                if random.random() < (self._pressure - 1.0) * 0.1:
+                    r.health -= random.uniform(10, 30)  # additional mortality risk due to overcrowding
 
             # Caloric health erosion — health erodes as a direct, graduated consequence of
             # the caloric reserve dropping through two real thresholds (3000 kcal baseline,
