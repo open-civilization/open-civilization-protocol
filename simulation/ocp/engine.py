@@ -202,7 +202,7 @@ NIGHT_LOSS_FACTOR = 1.2
 # (reserve in the death-zone band). Colder zones and seasons push residents into this
 # state far more often, so these technologies emerge first and fastest exactly where they
 # matter — no separate zone gate is needed beyond the caloric-crisis condition itself.
-SHELTER_DISCOVERY_CHANCE = 0.10   # per winter tick spent in caloric crisis
+SHELTER_DISCOVERY_CHANCE = 0.50   # per winter tick spent in caloric crisis
 CLOTHING_DISCOVERY_CHANCE = 0.10  # per winter tick spent in caloric crisis
 FIRE_DISCOVERY_CHANCE = 0.04      # per winter tick spent in caloric crisis
 SHELTER_UPKEEP_REDUCTION = 0.3    # shelter blunts environmental exposure, day and night

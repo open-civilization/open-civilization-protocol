@@ -793,6 +793,21 @@ def _self_determination_theory_compare(history, state):
     return None
 
 
+def _cognitive_load_theory_compare(history, state):
+    avg_pressure = mean(metric['pressure'] for metric in history)
+    avg_bonds = mean(resident['bonds'] for resident in state['residents'])
+    # Check if high pressure correlates with low bonding
+    if avg_pressure > 0.5 and avg_bonds < 1:
+        return TheoryFinding(
+            theory='Cognitive Load Theory',
+            citation='Sweller, J. (1988)',
+            gap='The average bonding is very low under high pressure, suggesting that cognitive overload restricts social bonding efforts.',
+            severity='high',
+            observed={'avg_bonds': avg_bonds, 'avg_pressure': avg_pressure}
+        )
+    return None
+
+
 LENSES: list[TheoryLens] = [
     TheoryLens("Malthusian population dynamics", "Malthus (1798)",
                "Population oscillates around carrying capacity under growth/check dynamics.",
@@ -857,6 +872,9 @@ LENSES: list[TheoryLens] = [
     TheoryLens("Self-Determination Theory", "Deci, E. L., & Ryan, R. M. (1985). Intrinsic Motivation and Self-Determination in Human Behavior.",
                "Residents will thrive and reproduce effectively when their innate psychological needs for autonomy, competence, and relatedness are met.",
                _self_determination_theory_compare),
+    TheoryLens("Cognitive Load Theory", "Sweller, J. (1988)",
+               "As cognitive load increases due to resource scarcity or environmental challenges, social bonding becomes less likely, resulting in fewer social structures and weaker community ties.",
+               _cognitive_load_theory_compare),
 # AUTO-DISCOVERED LENSES REGISTERED BELOW THIS LINE — appended by discovery.py
 ]
 
