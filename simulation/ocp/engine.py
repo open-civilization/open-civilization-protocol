@@ -232,9 +232,9 @@ FIDELITY_WRITTEN = 0.95     # writing: symbolic external memory, near-lossless e
 #     making joint action valuable, plus embeddedness in an actual group (enough bonds) —
 #     a solitary individual has no one to coordinate with regardless of pressure
 LANGUAGE_GROUP_SIZE = 2              # must be embedded in a real, sustained group
-LANGUAGE_BOND_THRESHOLD = 0.2        # this specific relationship must carry real cooperative value
+LANGUAGE_BOND_THRESHOLD = 0.1        # this specific relationship must carry real cooperative value
 LANGUAGE_REPEAT_THRESHOLD = 3        # repeated game — interacted with this individual several times
-LANGUAGE_PRESSURE_THRESHOLD = 0.03    # environmental uncertainty/scarcity creates coordination payoff
+LANGUAGE_PRESSURE_THRESHOLD = 0.02    # environmental uncertainty/scarcity creates coordination payoff
 LANGUAGE_DISCOVERY_CHANCE = 0.02     # per qualifying interaction
 LANGUAGE_COOPERATION_BONUS = 4.0     # multiplier when the interaction was an actual cooperative act
 
@@ -708,7 +708,7 @@ def decide(r, grid, residents, tick, pressure=0.0):
     # scarcity is severe enough (RFC-0007: no engine-authored Group/War object, this is
     # purely individual-level targeting bias using the existing bond system).
     raid_base = 0.3 + r.traits.risk_tolerance * 0.5
-    if pressure > 1.2:
+    if pressure > 1.2 and r.traits.sociability < 0.5:
         raid_base += 0.25 * (pressure - 1.2)
 
     if r.energy < 540 and here.biomass < 3 and here.leftover < 2:

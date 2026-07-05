@@ -723,6 +723,26 @@ def _social_cohesion_compare(history, state):
     return None
 
 
+def _moral_economy_compare(history, state):
+    total_bonds = sum(resident['bonds'] for resident in state['residents'])
+    avg_bonds = total_bonds / len(state['residents']) if state['residents'] else 0
+    avg_pressure = mean(h['pressure'] for h in history)
+    gini = mean(h['gini'] for h in history)
+
+    # Evaluate if community norms of fairness are eroding
+    if avg_bonds < 1 and avg_pressure > 1 and gini > 0.3:
+        return TheoryFinding(
+            theory='Theory of Moral Economy',
+            citation='E.P. Thompson, The Making of the English Working Class, 1963',
+            prediction='In contexts of acute resource scarcity, communities will adhere to norms around fairness and mutual aid, preventing the emergence of exploitative behaviors despite high competition for resources.',
+            observed={'avg_bonds': avg_bonds, 'avg_pressure': avg_pressure, 'avg_gini': gini},
+            gap='The observed bond count is low, indicating a failure of communal obligation and fair resource distribution despite high resource pressure and inequality, contrary to the prediction of the Theory of Moral Economy.',
+            severity='high',
+            suggested_investigation='assess_resource_distribution_narratives_and_norms'
+        )
+    return None
+
+
 LENSES: list[TheoryLens] = [
     TheoryLens("Malthusian population dynamics", "Malthus (1798)",
                "Population oscillates around carrying capacity under growth/check dynamics.",
@@ -778,6 +798,9 @@ LENSES: list[TheoryLens] = [
     TheoryLens("Social Cohesion Theory", "Durkheim, E. (1893), The Division of Labor in Society",
                "In conditions of high resource pressure, individuals will establish and strengthen social ties to promote group survival, leading to increased cooperation and reduced tension within the population.",
                _social_cohesion_compare),
+    TheoryLens("Theory of Moral Economy", "E.P. Thompson, 'The Making of the English Working Class', 1963",
+               "In contexts of acute resource scarcity, communities will adhere to norms around fairness and mutual aid, preventing the emergence of exploitative behaviors despite high competition for resources.",
+               _moral_economy_compare),
 # AUTO-DISCOVERED LENSES REGISTERED BELOW THIS LINE — appended by discovery.py
 ]
 
