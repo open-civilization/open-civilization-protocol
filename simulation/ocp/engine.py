@@ -934,7 +934,7 @@ def _maybe_discover_language(r, target, tick, pressure, cooperative=False):
     bond = r.bonds[target.id]
     if bond.quality < LANGUAGE_BOND_THRESHOLD or bond.interactions < LANGUAGE_REPEAT_THRESHOLD:
         return None
-    if pressure < LANGUAGE_PRESSURE_THRESHOLD:
+    if pressure < LANGUAGE_PRESSURE_THRESHOLD or r.traits.sociability > 0.4:
         return None
     chance = LANGUAGE_DISCOVERY_CHANCE * (LANGUAGE_COOPERATION_BONUS if cooperative else 1.0)
     if random.random() < chance:

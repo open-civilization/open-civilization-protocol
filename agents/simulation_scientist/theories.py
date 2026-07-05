@@ -545,6 +545,43 @@ def _risk_pooling_and_mutual_aid_compare(history, state):
     return None
 
 
+def _social_network_stability_compare(history, state):
+    # Extract recent metrics to analyze social network impact
+    recent_pop = [h['pop'] for h in history[-10:]]  # last 10 ticks
+    recent_avg_energy = [h['avg_energy'] for h in history[-10:]]
+    avg_pop = mean(recent_pop)
+    avg_energy = mean(recent_avg_energy)
+    avg_pressure = mean([h['pressure'] for h in history[-10:]])
+
+    # Define expected effect of strong social networks
+    if avg_pressure > 1:  # indicates chronic resource pressure
+        # Ideal scenario under network theory: lower fluctuation in population despite pressure
+        expected_stability = True
+    else:
+        expected_stability = False
+
+    # Calculate observed stability based on avg population fluctuations
+    population_fluctuation = pstdev(recent_pop)
+    energy_fluctuation = pstdev(recent_avg_energy)
+
+    # Criteria for gap: if population fluctuation is high but pressure is also high
+    if population_fluctuation > 10 and expected_stability:
+        return TheoryFinding(
+            theory='Social Network Theory',
+            citation='Borgatti, S. P., & Halgin, D. S. (2011). Analyzing Affiliation Networks. In The Sage Handbook of Social Network Analysis.',
+            prediction='Tightly connected social networks should maintain stability and resilience in resource-challenged environments, leading to lower volatility in population dynamics despite high carrying capacity pressure.',
+            observed={
+                'population_fluctuation': population_fluctuation,
+                'avg_pressure': avg_pressure,
+                'avg_pop': avg_pop,
+                'avg_energy': avg_energy
+            },
+            severity='high',
+            gap='Observed population fluctuation is high despite expected stability from social networks, indicating potential disconnection or ineffective bonding rather than cohesive community resilience.'
+        )
+    return None
+
+
 LENSES: list[TheoryLens] = [
     TheoryLens("Malthusian population dynamics", "Malthus (1798)",
                "Population oscillates around carrying capacity under growth/check dynamics.",
@@ -576,6 +613,9 @@ LENSES: list[TheoryLens] = [
     TheoryLens("Risk Pooling and Mutual Aid (Solidarity Hypothesis)", "Polanyi, Karl. The Great Transformation (1944); Scott, James C. The Moral Economy of the Peasant (1976)",
                "Under chronic resource pressure, agents with low individual calorie reserves will sustain higher average energy than individual foraging alone would allow, because redistribution via social bonds (gifts, sharing) buffers against stochastic shortfalls, producing a flatter, elevated population plateau than pure carrying capacity would enforce.",
                _risk_pooling_and_mutual_aid_compare),
+    TheoryLens("Social Network Theory", "Borgatti, S. P., & Halgin, D. S. (2011). Analyzing Affiliation Networks. In The Sage Handbook of Social Network Analysis.",
+               "Tightly connected social networks should maintain stability and resilience in resource-challenged environments, leading to lower volatility in population dynamics despite high carrying capacity pressure.",
+               _social_network_stability_compare),
 # AUTO-DISCOVERED LENSES REGISTERED BELOW THIS LINE — appended by discovery.py
 ]
 
