@@ -638,6 +638,66 @@ def _social_conflict_theory_compare(history, state):
     return None
 
 
+def _social_identity_theory_compare(history, state):
+    avg_bonds = mean(resident['bonds'] for resident in state['residents'])
+    max_bonds = max(resident['bonds'] for resident in state['residents'])
+    avg_pressures = mean(h['pressure'] for h in history)
+
+    # Identifying the bonding behavior under pressure
+    # If bond counts are low or volatile while pressure is high, it indicates a gap
+    if avg_bonds < 2 or avg_pressures > 1.5:
+        return TheoryFinding(
+            theory='Social Identity Theory',
+            citation='Tajfel, H., & Turner, J. C. (1979)',
+            prediction='In contexts of resource scarcity and population pressure, residents will favor in-group cooperation and bonding over inter-group conflict, thereby stabilizing social structures despite carrying capacity challenges.',
+            observed={'avg_bonds': avg_bonds, 'max_bonds': max_bonds, 'avg_pressure': avg_pressures},
+            gap='The average bond count is low while pressure is high, suggesting a potential deficiency in social cohesion and identity reinforcement, contrary to predictions.',
+            severity='high',
+            suggested_investigation='explore_in_group_vs_out_group_bonding_patterns'
+        )
+    return None
+
+
+def _social_bond_theory_compare(history, state):
+    bond_counts = [resident['bonds'] for resident in state['residents']]
+    avg_bonds = mean(bond_counts)
+    total_population = len(state['residents'])
+    avg_health = mean([resident['health'] for resident in state['residents']])
+    avg_energy = mean([resident['energy'] for resident in state['residents']])
+    avg_storage_skill = mean([resident['skills'].get('storage', 0) for resident in state['residents']])
+
+    if avg_bonds < total_population * 0.1 and (avg_health < 0.5 or avg_energy < 100):
+        return TheoryFinding(
+            theory='Social Bond Theory',
+            prediction='Weak social bonds will reduce cooperative behavior when population pressures are high, leading to higher mortality rates and lower vitality of the population.',
+            severity='high',
+            observed={'avg_bonds': avg_bonds, 'avg_health': avg_health, 'avg_energy': avg_energy},
+            gap='The observed average number of bonds per resident is very low, while average health and energy levels also suggest insufficient social cooperation to buffer against resource pressures.'
+        )
+    return None
+
+
+def _social_coordination_compare(history, state):
+    avg_bonds = mean([resident['bonds'] for resident in state['residents']])
+    pressure = median([h['pressure'] for h in history])
+    avg_pressure = mean([h['pressure'] for h in history])
+    bond_threshold = 5  # Hypothetical threshold for effective coordination
+    if avg_bonds < bond_threshold and avg_pressure > 1.2:
+        return TheoryFinding(
+            theory='Social Coordination Theory',
+            citation='Coleman, James S., Foundations of Social Theory, 1990',
+            prediction='Lower levels of social bonds relative to high resource pressure should lead to decreased cooperation and higher instability.',
+            observed={
+                'avg_bonds': avg_bonds,
+                'avg_pressure': avg_pressure,
+            },
+            gap='The residents exhibit low levels of social bonding which are insufficient to mitigate the negative impacts of high resource pressure, leading to an equilibrium without oscillation in the population dynamics.',
+            severity='high',
+            suggested_investigation='social_bonding_effect_on_population_stability'
+        )
+    return None
+
+
 LENSES: list[TheoryLens] = [
     TheoryLens("Malthusian population dynamics", "Malthus (1798)",
                "Population oscillates around carrying capacity under growth/check dynamics.",
@@ -681,6 +741,15 @@ LENSES: list[TheoryLens] = [
     TheoryLens("Social Conflict Theory", "Karl Marx, 'The Communist Manifesto', 1848",
                "The theory predicts that competition over limited resources will create social conflicts, leading to fissures in community cohesion and a potential for societal collapse.",
                _social_conflict_theory_compare),
+    TheoryLens("Social Identity Theory", "Tajfel, H., & Turner, J. C. (1979)",
+               "In contexts of resource scarcity and population pressure, residents will favor in-group cooperation and bonding over inter-group conflict, thereby stabilizing social structures despite carrying capacity challenges.",
+               _social_identity_theory_compare),
+    TheoryLens("Social Bond Theory", "Bowlby, J. (1969). Attachment and Loss: Volume I. Attachment.",
+               "The strength of social bonds within a population will significantly influence cooperative behavior, resource sharing, and survival rates, leading to stability or instability in the face of resource scarcity.",
+               _social_bond_theory_compare),
+    TheoryLens("Social Coordination Theory", "Coleman, James S., 'Foundations of Social Theory', 1990",
+               "Sustained cooperation among residents can increase overall resilience and adaptability in the face of resource pressures instead of leading to oscillatory population dynamics.",
+               _social_coordination_compare),
 # AUTO-DISCOVERED LENSES REGISTERED BELOW THIS LINE — appended by discovery.py
 ]
 
