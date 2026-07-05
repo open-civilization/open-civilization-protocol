@@ -31,8 +31,40 @@ BASELINE_ENERGY_COST = 60.0     # baseline daily metabolic burn before season/te
 PERCEPTION_BASE_RADIUS = 3
 MAX_HEALTH = 100.0
 SEASON_LENGTH = 8
-MEMORY_CAPACITY = 50
 TRAIT_MUTATION = 0.15
+
+# ── Cognition Model (IQ / working memory / long-term knowledge capacity) ──
+# Intelligence is a heritable trait, same family as strength/speed/perception. It sets a
+# learning-speed ceiling, but like a CPU under power throttling, that ceiling is only
+# reachable when energy is adequate — a starving brain thinks and learns worse regardless
+# of raw intelligence (see Resident.usable_intelligence). This is the concrete mechanism
+# RFC-0001 Law 8 (Bounded Computation) calls for: cognitive budgets that vary per
+# individual rather than a single constant applied to everyone.
+COMPUTE_ENERGY_THRESHOLD = 1200.0  # energy at/above which intelligence runs at full throttle
+THINKING_ENERGY_COST = 3.0         # baseline daily kcal cost of cognition, scales with intelligence
+
+# Working memory ("RAM") bounds how many spatial locations a resident can actively track
+# at once. Replaces the old flat MEMORY_CAPACITY constant, which was identical for every
+# resident regardless of age or nutrition — a direct violation of RFC-0004's Heterogeneity
+# Requirement (see Resident.brain_capacity).
+BASE_BRAIN_CAPACITY = 50            # working-memory slots at peak adulthood, well-nourished
+BRAIN_CAPACITY_CHILD_MULT = 0.4     # still developing before REPRODUCTION_AGE
+BRAIN_CAPACITY_ELDER_ONSET = 60     # working memory begins declining from this age
+BRAIN_CAPACITY_ELDER_SPAN = 40      # ...and bottoms out around ELDER_ONSET + ELDER_SPAN
+
+# Long-term knowledge capacity ("disk") caps how many distinct knowledge domains a
+# resident can hold onto at once (see Resident.knowledge_capacity). Before this,
+# known_knowledge had no ceiling at all — any long-lived, well-traveled resident could
+# accumulate every skill in the game, which is exactly the "everyone ends up knowing
+# everything" unrealism this model exists to prevent.
+BASE_KNOWLEDGE_CAPACITY = 6           # distinct knowledge domains an unlettered mind can hold
+WRITING_KNOWLEDGE_CAPACITY_BONUS = 10 # writing is external memory (see the "external memory
+                                       # organ" comment on WRITING_DISCOVERY_CHANCE below); it
+                                       # raises the effective ceiling rather than the individual
+                                       # brain having to hold everything itself
+
+LEARNING_ENERGY_COST = 8.0   # kcal cost to a listener who successfully learns something new
+TEACHING_ENERGY_COST = 5.0   # kcal cost to a speaker for actively transmitting knowledge
 
 # Mortality factors — base rates are mild; population pressure amplifies them
 DISEASE_BASE_CHANCE = 0.005
@@ -265,6 +297,34 @@ def _transmission_fidelity(speaker):
     return FIDELITY_IMITATION
 
 
+def _learn_knowledge(r, kname, entry):
+    """Add a brand-new knowledge domain to a resident, respecting their long-term
+    knowledge capacity ('disk', see Resident.knowledge_capacity). If already full, the
+    weakest-held domain is forgotten to make room — knowledge storage is finite, not an
+    ever-growing dict, which is what let any long-lived resident learn every skill in the
+    game before this cap existed."""
+    if kname in r.known_knowledge:
+        return
+    if len(r.known_knowledge) >= r.knowledge_capacity():
+        weakest = min(r.known_knowledge.items(), key=lambda kv: kv[1].get('level', 0))[0]
+        del r.known_knowledge[weakest]
+        r.skills.pop(weakest, None)
+    r.known_knowledge[kname] = entry
+    r.skills[kname] = entry['level'] * 100
+
+
+def _reinforce_knowledge(r, kname, base_rate):
+    """Grow an already-known skill's level through practice, scaled by the resident's
+    usable intelligence (IQ throttled by available energy) — smarter, better-fed
+    individuals learn faster from the same amount of practice."""
+    if kname not in r.known_knowledge:
+        return
+    current = r.known_knowledge[kname]['level']
+    learning_mult = 0.5 + r.usable_intelligence()
+    r.known_knowledge[kname]['level'] = min(1.0, current + base_rate * (1.0 - current) * learning_mult)
+    r.skills[kname] = r.known_knowledge[kname]['level'] * 100
+
+
 def climate_zone(y):
     third = GRID_H // 3
     if y < third:
@@ -315,6 +375,8 @@ class Traits:
     sociability: float
     risk_tolerance: float
     immunity: float = 0.5  # natural disease resistance; heritable, drives epidemic survival
+    intelligence: float = 1.0  # cognitive ceiling — learning speed & decision quality,
+                                # throttled by available energy (Resident.usable_intelligence)
 
     @staticmethod
     def random():
@@ -326,6 +388,7 @@ class Traits:
             sociability=random.uniform(0.1, 0.9),
             risk_tolerance=random.uniform(0.1, 0.9),
             immunity=random.uniform(0.1, 0.9),
+            intelligence=random.uniform(0.6, 1.4),
         )
 
     def mutate(self):
@@ -339,6 +402,7 @@ class Traits:
             sociability=m(self.sociability, 0.0, 1.0),
             risk_tolerance=m(self.risk_tolerance, 0.0, 1.0),
             immunity=m(self.immunity, 0.0, 1.0),
+            intelligence=m(self.intelligence, 0.3, 1.8),
         )
 
     def blend(self, other):
@@ -350,6 +414,7 @@ class Traits:
             sociability=(self.sociability + other.sociability) / 2,
             risk_tolerance=(self.risk_tolerance + other.risk_tolerance) / 2,
             immunity=(self.immunity + other.immunity) / 2,
+            intelligence=(self.intelligence + other.intelligence) / 2,
         ).mutate()
 
 
@@ -392,12 +457,43 @@ class Resident:
     skills: dict = field(default_factory=lambda: {'food_storage': 0.0})
     known_knowledge: dict = field(default_factory=lambda: {})  # knowledge_name -> {level, source, tick_learned}
     malnutrition_debt: float = 0.0  # cumulative nutritional stress; drives aging independent of raw age
+    energy_intake_today: float = 0.0  # gross kcal gained this tick (foraging, harvest, being fed)
+    energy_spent_today: float = 0.0   # gross kcal spent this tick (upkeep + whatever action was taken)
 
     def view_radius(self):
         return max(1, int(PERCEPTION_BASE_RADIUS * self.traits.perception))
 
+    def usable_intelligence(self):
+        """Raw IQ throttled by available energy — a starving brain can't think at its
+        ceiling, the same principle as a CPU clocking down under insufficient power.
+        Used to scale learning speed everywhere knowledge/skill levels grow."""
+        return self.traits.intelligence * min(1.0, self.energy / COMPUTE_ENERGY_THRESHOLD)
+
+    def brain_capacity(self):
+        """Working-memory slot count ('RAM') — how many spatial-memory entries this
+        resident can track at once. Varies by age (still developing in childhood,
+        declining in old age) and by chronic malnutrition, not a flat global constant."""
+        if self.age < REPRODUCTION_AGE:
+            age_mult = BRAIN_CAPACITY_CHILD_MULT + (1.0 - BRAIN_CAPACITY_CHILD_MULT) * (self.age / REPRODUCTION_AGE)
+        elif self.age > BRAIN_CAPACITY_ELDER_ONSET:
+            decline = min(1.0, (self.age - BRAIN_CAPACITY_ELDER_ONSET) / BRAIN_CAPACITY_ELDER_SPAN)
+            age_mult = 1.0 - decline * (1.0 - BRAIN_CAPACITY_CHILD_MULT)
+        else:
+            age_mult = 1.0
+        nutrition_mult = 1.0 - (self.malnutrition_debt / NUTRITION_DEBT_CAP) * 0.5
+        return max(5, int(BASE_BRAIN_CAPACITY * age_mult * nutrition_mult * (0.7 + 0.3 * self.traits.intelligence)))
+
+    def knowledge_capacity(self):
+        """Long-term knowledge storage ('disk') — how many distinct knowledge domains this
+        resident can hold onto at once. Writing externalizes memory, raising the ceiling
+        (see the "external memory organ" comment on WRITING_DISCOVERY_CHANCE)."""
+        cap = BASE_KNOWLEDGE_CAPACITY * (0.7 + 0.3 * self.traits.intelligence)
+        if 'writing' in self.known_knowledge:
+            cap += WRITING_KNOWLEDGE_CAPACITY_BONUS
+        return max(1, int(cap))
+
     def upkeep(self):
-        return BASELINE_ENERGY_COST / self.traits.endurance
+        return BASELINE_ENERGY_COST / self.traits.endurance + THINKING_ENERGY_COST * self.traits.intelligence
 
 
 # ── World Generation ──
@@ -533,7 +629,14 @@ def _spawn(rid, grid, tick, parent=None, partner=None):
     child = Resident(rid, _rand_name(), x, y, 0, nrg, MAX_HEALTH, traits,
                     True, pid, gen, [], {}, tick)
     child.known_knowledge = inherited_knowledge
-    child.skills = {kname: kdata['level'] * 100 for kname, kdata in inherited_knowledge.items()}
+    cap = child.knowledge_capacity()
+    if len(child.known_knowledge) > cap:
+        # A newborn's own long-term knowledge capacity ('disk') caps what can be
+        # retained from parents — keep the strongest-held domains rather than letting
+        # inheritance bypass the cap that governs everyone else.
+        kept = sorted(child.known_knowledge.items(), key=lambda kv: kv[1].get('level', 0), reverse=True)[:cap]
+        child.known_knowledge = dict(kept)
+    child.skills = {kname: kdata['level'] * 100 for kname, kdata in child.known_knowledge.items()}
     return child
 
 
@@ -780,21 +883,19 @@ def _do_forage(r, grid, tick, residents=None):
         if random.random() < DOMESTICATION_DISCOVERY_CHANCE * farm_suit:
             if random.random() < DOMESTICATION_SUCCESS_CHANCE:
                 crop_type = _pick_archetype(CROP_ARCHETYPES, cell.climate)
-                r.known_knowledge['crop_cultivation'] = {
+                _learn_knowledge(r, 'crop_cultivation', {
                     'level': 0.15, 'source': 'experimented_with_planting', 'tick_learned': tick,
                     'crop_type': crop_type,
-                }
-                r.skills['crop_cultivation'] = 15.0
+                })
                 discovery_msg = f'{r.name} domesticated a {crop_type} crop'
     if graze_suit > 0 and 'animal_husbandry' not in r.known_knowledge:
         if random.random() < DOMESTICATION_DISCOVERY_CHANCE * graze_suit:
             if random.random() < DOMESTICATION_SUCCESS_CHANCE:
                 livestock_type = _pick_archetype(LIVESTOCK_ARCHETYPES, cell.climate)
-                r.known_knowledge['animal_husbandry'] = {
+                _learn_knowledge(r, 'animal_husbandry', {
                     'level': 0.15, 'source': 'experimented_with_herding', 'tick_learned': tick,
                     'crop_type': livestock_type,
-                }
-                r.skills['animal_husbandry'] = 15.0
+                })
                 discovery_msg = f'{r.name} domesticated {livestock_type} livestock'
 
     # Agricultural technology ladder — irrigation, selective breeding, fertilizer/pesticides.
@@ -804,26 +905,23 @@ def _do_forage(r, grid, tick, residents=None):
     # seasons/generations is what makes agricultural science possible at all).
     if (cell.water and 'crop_cultivation' in r.known_knowledge and 'irrigation' not in r.known_knowledge
             and random.random() < IRRIGATION_DISCOVERY_CHANCE):
-        r.known_knowledge['irrigation'] = {
+        _learn_knowledge(r, 'irrigation', {
             'level': 0.2, 'source': 'water_management_experience', 'tick_learned': tick
-        }
-        r.skills['irrigation'] = 20.0
+        })
         discovery_msg = f'{r.name} developed irrigation'
     if (r.skills.get('crop_cultivation', 0) >= BREEDING_SKILL_THRESHOLD
             and 'selective_breeding' not in r.known_knowledge
             and random.random() < BREEDING_DISCOVERY_CHANCE):
-        r.known_knowledge['selective_breeding'] = {
+        _learn_knowledge(r, 'selective_breeding', {
             'level': 0.2, 'source': 'generations_of_seed_selection', 'tick_learned': tick
-        }
-        r.skills['selective_breeding'] = 20.0
+        })
         discovery_msg = f'{r.name} began selectively breeding higher-yield crops'
     if ('writing' in r.known_knowledge and 'selective_breeding' in r.known_knowledge
             and 'fertilizer' not in r.known_knowledge
             and random.random() < FERTILIZER_DISCOVERY_CHANCE):
-        r.known_knowledge['fertilizer'] = {
+        _learn_knowledge(r, 'fertilizer', {
             'level': 0.2, 'source': 'systematic_agricultural_science', 'tick_learned': tick
-        }
-        r.skills['fertilizer'] = 20.0
+        })
         discovery_msg = f'{r.name} developed fertilizer and pest control'
 
     # A cell's energy-density ceiling ratchets up to the best agricultural technology any
@@ -838,23 +936,17 @@ def _do_forage(r, grid, tick, residents=None):
         skill = r.skills.get('crop_cultivation', 0) / 100.0
         cell.cultivation = min(1.0, cell.cultivation + CULTIVATION_GAIN_RATE * skill * farm_suit)
         if random.random() < 0.03:
-            current = r.known_knowledge['crop_cultivation']['level']
-            r.known_knowledge['crop_cultivation']['level'] = min(1.0, current + 0.02 * (1.0 - current))
-            r.skills['crop_cultivation'] = r.known_knowledge['crop_cultivation']['level'] * 100
+            _reinforce_knowledge(r, 'crop_cultivation', 0.02)
     if graze_suit > 0 and 'animal_husbandry' in r.known_knowledge:
         skill = r.skills.get('animal_husbandry', 0) / 100.0
         cell.cultivation = min(1.0, cell.cultivation + CULTIVATION_GAIN_RATE * skill * graze_suit)
         if random.random() < 0.03:
-            current = r.known_knowledge['animal_husbandry']['level']
-            r.known_knowledge['animal_husbandry']['level'] = min(1.0, current + 0.02 * (1.0 - current))
-            r.skills['animal_husbandry'] = r.known_knowledge['animal_husbandry']['level'] * 100
+            _reinforce_knowledge(r, 'animal_husbandry', 0.02)
 
     # Learning by doing for the higher agricultural tiers — same reinforcement pattern
     for tier_skill in ('irrigation', 'selective_breeding', 'fertilizer'):
         if tier_skill in r.known_knowledge and random.random() < 0.025:
-            current = r.known_knowledge[tier_skill]['level']
-            r.known_knowledge[tier_skill]['level'] = min(1.0, current + 0.02 * (1.0 - current))
-            r.skills[tier_skill] = r.known_knowledge[tier_skill]['level'] * 100
+            _reinforce_knowledge(r, tier_skill, 0.02)
 
     # Harvest from biomass
     if cell.biomass > 0:
@@ -939,10 +1031,9 @@ def _maybe_discover_language(r, target, tick, pressure, cooperative=False):
     chance = LANGUAGE_DISCOVERY_CHANCE * (1 + (pressure - 1) * 0.5) * (LANGUAGE_COOPERATION_BONUS if cooperative else 1.0)
     if random.random() < chance:
         origin = 'during_cooperation' if cooperative else 'through_repeated_contact'
-        r.known_knowledge['spoken_language'] = {
+        _learn_knowledge(r, 'spoken_language', {
             'level': 0.3, 'source': f'coined_with_{target.name}_{origin}', 'tick_learned': tick
-        }
-        r.skills['spoken_language'] = 30.0
+        })
         return f'{r.name} and {target.name} coined shared words — spoken language emerges'
     return None
 
@@ -987,9 +1078,10 @@ def _do_interact(r, target_id, residents, tick, pressure=0.0):
         mem = random.choice(r.memory)
         distorted = MemEntry(mem.x, mem.y, mem.biomass * random.uniform(0.7, 1.3), tick)
         target.memory.append(distorted)
-        if len(target.memory) > MEMORY_CAPACITY:
+        cap = target.brain_capacity()
+        if len(target.memory) > cap:
             target.memory.sort(key=lambda m: m.tick, reverse=True)
-            target.memory = target.memory[:MEMORY_CAPACITY]
+            target.memory = target.memory[:cap]
 
     # Spoken language discovery — weaker signal here than the cooperative-sharing path
     # above (general contact, not an exchanged payoff), see _maybe_discover_language.
@@ -1004,42 +1096,50 @@ def _do_interact(r, target_id, residents, tick, pressure=0.0):
     age_bonus = min(0.3, r.age / 100.0)  # Older people transmit better
     transmission_prob = (r.traits.sociability * 0.4) + age_bonus
 
-    if r.known_knowledge and random.random() < transmission_prob:
+    # Teaching and learning both cost energy — a speaker/listener too calorie-poor to
+    # afford it simply cannot transmit or absorb knowledge this tick, regardless of how
+    # willing either is. This is what makes "too poor in energy to learn" a real
+    # constraint rather than only a probability modifier.
+    can_teach = r.energy > TEACHING_ENERGY_COST
+    can_learn = target.energy > LEARNING_ENERGY_COST
+    if r.known_knowledge and can_teach and can_learn and random.random() < transmission_prob:
         # Pick a random knowledge the speaker has
         knowledge_name = random.choice(list(r.known_knowledge.keys()))
         speaker_knowledge = r.known_knowledge[knowledge_name]
         channel_fidelity = _transmission_fidelity(r)
+        listener_learning_mult = 0.5 + target.usable_intelligence()
 
         # Listener learns with distortion/loss proportional to quality gap
         if knowledge_name not in target.known_knowledge:
             # First time hearing about this knowledge — capped by the speaker's channel,
-            # scaled down if the speaker's own grasp of it is still shallow
+            # scaled down if the speaker's own grasp of it is still shallow, scaled up if
+            # the listener's own usable intelligence (IQ throttled by their energy) is high
             fidelity = channel_fidelity * (0.5 + speaker_knowledge['level'] * 0.5)
-            learned_level = speaker_knowledge['level'] * fidelity
-            target.known_knowledge[knowledge_name] = {
+            learned_level = min(1.0, speaker_knowledge['level'] * fidelity * listener_learning_mult)
+            _learn_knowledge(target, knowledge_name, {
                 **speaker_knowledge,
                 'level': learned_level,
                 'source': f'learned_from_{r.name}',
                 'tick_learned': tick,
-            }
-            target.skills[knowledge_name] = learned_level * 100
+            })
             if not event_msg:
                 event_msg = f'{r.name} taught {target.name} about {knowledge_name}'
         else:
             # Reinforce existing knowledge (only if speaker knows better)
             existing_level = target.known_knowledge[knowledge_name]['level']
             if speaker_knowledge['level'] > existing_level:
-                improvement = (speaker_knowledge['level'] - existing_level) * channel_fidelity * 0.2
+                improvement = (speaker_knowledge['level'] - existing_level) * channel_fidelity * 0.2 * listener_learning_mult
                 target.known_knowledge[knowledge_name]['level'] = min(1.0, existing_level + improvement)
                 target.skills[knowledge_name] = target.known_knowledge[knowledge_name]['level'] * 100
+
+        r.energy -= TEACHING_ENERGY_COST
+        target.energy -= LEARNING_ENERGY_COST
 
         # Learning by doing: successfully communicating deepens the speaker's own
         # language/writing fluency, same reinforcement pattern as other practiced skills
         for meta_skill in ('spoken_language', 'writing'):
             if meta_skill in r.known_knowledge and random.random() < 0.04:
-                current = r.known_knowledge[meta_skill]['level']
-                r.known_knowledge[meta_skill]['level'] = min(1.0, current + 0.03 * (1.0 - current))
-                r.skills[meta_skill] = r.known_knowledge[meta_skill]['level'] * 100
+                _reinforce_knowledge(r, meta_skill, 0.03)
 
     return event_msg
 
@@ -1214,6 +1314,16 @@ class Simulation:
                 continue
             r.age += 1
 
+            # Daily calorie ledger: one tick is one day (see the Energy Model comment at
+            # the top of this file), so gross spend/intake this tick is exactly the daily
+            # figures the sandbox/dashboard can show per resident. This is a primary-cost
+            # approximation, not an exhaustive accounting: it captures upkeep plus whatever
+            # single action this resident takes (foraging gain, movement/reproduction/raid
+            # cost), but not being fed by someone else's action later in this same tick.
+            r.energy_intake_today = 0.0
+            r.energy_spent_today = 0.0
+            _energy_before_upkeep = r.energy
+
             # Upkeep — one tick's day-night caloric burn, shaped by season, zone, and
             # whichever cold-mitigation technologies this resident knows. Day and night
             # loss are computed separately (see DAY_LOSS_FACTOR/NIGHT_LOSS_FACTOR) so fire
@@ -1236,6 +1346,7 @@ class Simulation:
             r.energy -= cost
             if r.energy < 0:
                 r.energy = 0
+            r.energy_spent_today += _energy_before_upkeep - r.energy
 
             # Population pressure multiplier — mild below capacity, brutal above
             pressure_mult = max(1.0, self._pressure ** 2)
@@ -1269,91 +1380,78 @@ class Simulation:
                 # experience, only if they don't already know
                 if in_crisis and 'food_storage' not in r.known_knowledge:
                     if random.random() < 0.08:
-                        r.known_knowledge['food_storage'] = {
+                        _learn_knowledge(r, 'food_storage', {
                             'level': 0.2,
                             'source': 'desperate_winter_experience',
                             'tick_learned': tick
-                        }
-                        r.skills['food_storage'] = 20.0
+                        })
                         evts.append({'tick': tick, 'type': 'discovery',
                                      'text': f'{r.name} learned food storage through winter hardship',
                                      'x': r.x, 'y': r.y})
                 elif recovering and 'food_storage' in r.known_knowledge and random.random() < 0.06:
-                    current = r.known_knowledge['food_storage']['level']
-                    improvement = 0.04 + (0.04 * (1.0 - current))
-                    r.known_knowledge['food_storage']['level'] = min(1.0, current + improvement)
-                    r.skills['food_storage'] = r.known_knowledge['food_storage']['level'] * 100
+                    _reinforce_knowledge(r, 'food_storage', 0.08)
 
                 # Shelter discovery — Experiment pathway: repeated caloric crisis motivates
                 # building windbreaks/shelter. Colder zones and seasons push residents into
                 # crisis far more often, so shelter naturally emerges first where it matters.
                 if (in_crisis and 'shelter_building' not in r.known_knowledge
                         and random.random() < SHELTER_DISCOVERY_CHANCE):
-                    r.known_knowledge['shelter_building'] = {
+                    _learn_knowledge(r, 'shelter_building', {
                         'level': 0.2, 'source': 'caloric_crisis_experience', 'tick_learned': tick
-                    }
-                    r.skills['shelter_building'] = 20.0
+                    })
                     evts.append({'tick': tick, 'type': 'discovery',
                                  'text': f'{r.name} learned to build shelter against the cold',
                                  'x': r.x, 'y': r.y})
                 elif (recovering and 'shelter_building' in r.known_knowledge
                         and random.random() < 0.05):
-                    current = r.known_knowledge['shelter_building']['level']
-                    r.known_knowledge['shelter_building']['level'] = min(1.0, current + 0.04 * (1.0 - current))
-                    r.skills['shelter_building'] = r.known_knowledge['shelter_building']['level'] * 100
+                    _reinforce_knowledge(r, 'shelter_building', 0.04)
 
                 # Clothing discovery — same Experiment pathway, independent invention from
                 # shelter (a resident may find one, the other, or both over time)
                 if (in_crisis and 'clothing_making' not in r.known_knowledge
                         and random.random() < CLOTHING_DISCOVERY_CHANCE):
-                    r.known_knowledge['clothing_making'] = {
+                    _learn_knowledge(r, 'clothing_making', {
                         'level': 0.2, 'source': 'caloric_crisis_experience', 'tick_learned': tick
-                    }
-                    r.skills['clothing_making'] = 20.0
+                    })
                     evts.append({'tick': tick, 'type': 'discovery',
                                  'text': f'{r.name} learned to make warm clothing',
                                  'x': r.x, 'y': r.y})
                 elif (recovering and 'clothing_making' in r.known_knowledge
                         and random.random() < 0.05):
-                    current = r.known_knowledge['clothing_making']['level']
-                    r.known_knowledge['clothing_making']['level'] = min(1.0, current + 0.04 * (1.0 - current))
-                    r.skills['clothing_making'] = r.known_knowledge['clothing_making']['level'] * 100
+                    _reinforce_knowledge(r, 'clothing_making', 0.04)
 
                 # Fire discovery — same Experiment pathway; effect specifically targets the
                 # amplified nighttime loss (see upkeep above), distinguishing it from
                 # shelter (blunts exposure generally) and clothing (personal insulation)
                 if (in_crisis and 'fire_making' not in r.known_knowledge
                         and random.random() < FIRE_DISCOVERY_CHANCE):
-                    r.known_knowledge['fire_making'] = {
+                    _learn_knowledge(r, 'fire_making', {
                         'level': 0.2, 'source': 'caloric_crisis_experience', 'tick_learned': tick
-                    }
-                    r.skills['fire_making'] = 20.0
+                    })
                     evts.append({'tick': tick, 'type': 'discovery',
                                  'text': f'{r.name} learned to keep fire through the night',
                                  'x': r.x, 'y': r.y})
                 elif (recovering and 'fire_making' in r.known_knowledge
                         and random.random() < 0.05):
-                    current = r.known_knowledge['fire_making']['level']
-                    r.known_knowledge['fire_making']['level'] = min(1.0, current + 0.04 * (1.0 - current))
-                    r.skills['fire_making'] = r.known_knowledge['fire_making']['level'] * 100
+                    _reinforce_knowledge(r, 'fire_making', 0.04)
 
             # Writing discovery — Experiment pathway: a resident who already has spoken
-            # language, belongs to a larger organized group, holds enough distinct
-            # knowledge domains to strain memory, has energy surplus, and whose society
-            # is pressing at or beyond its subsistence ceiling occasionally devises a
-            # symbolic record to externalize what oral tradition alone keeps losing.
+            # language, belongs to a larger organized group, is genuinely at their personal
+            # long-term knowledge capacity ('disk', see Resident.knowledge_capacity — the
+            # real memory deficit, not an arbitrary domain count), has energy surplus, and
+            # whose society is pressing at or beyond its subsistence ceiling occasionally
+            # devises a symbolic record to externalize what oral tradition alone keeps losing.
             if ('spoken_language' in r.known_knowledge and 'writing' not in r.known_knowledge
-                    and len(r.known_knowledge) >= WRITING_COMPLEXITY_THRESHOLD
+                    and len(r.known_knowledge) >= min(WRITING_COMPLEXITY_THRESHOLD, r.knowledge_capacity())
                     and len(r.bonds) >= WRITING_GROUP_SIZE
                     and r.energy > WRITING_ENERGY_THRESHOLD
                     and self._pressure > WRITING_PRESSURE_THRESHOLD):
                 if random.random() < WRITING_DISCOVERY_CHANCE:
-                    r.known_knowledge['writing'] = {
+                    _learn_knowledge(r, 'writing', {
                         'level': 0.25,
                         'source': 'devised_symbolic_record',
                         'tick_learned': tick
-                    }
-                    r.skills['writing'] = 25.0
+                    })
                     evts.append({'tick': tick, 'type': 'discovery',
                                  'text': f'{r.name} devised a system of writing',
                                  'x': r.x, 'y': r.y})
@@ -1435,6 +1533,7 @@ class Simulation:
                 action, tx, ty, tid = decide(r, self.grid, self.residents, tick, self._pressure)
 
             msg = None
+            _energy_before_action = r.energy
             if action == 'move':
                 msg = _do_move(r, tx, ty, self.grid)
             elif action == 'forage':
@@ -1450,6 +1549,12 @@ class Simulation:
             elif action == 'reproduce':
                 msg, self._next_id = _do_reproduce(r, tid, self.residents, self.grid, tick, self._next_id)
 
+            _action_delta = r.energy - _energy_before_action
+            if _action_delta >= 0:
+                r.energy_intake_today += _action_delta
+            else:
+                r.energy_spent_today += -_action_delta
+
             if msg:
                 evt_type = 'discovery' if msg.startswith(f'{r.name} discovered') else action
                 evts.append({'tick': tick, 'type': evt_type, 'text': msg, 'x': r.x, 'y': r.y})
@@ -1464,9 +1569,10 @@ class Simulation:
                     break
             if not found:
                 r.memory.append(MemEntry(cell.x, cell.y, cell.biomass, tick))
-                if len(r.memory) > MEMORY_CAPACITY:
+                cap = r.brain_capacity()
+                if len(r.memory) > cap:
                     r.memory.sort(key=lambda m: m.tick, reverse=True)
-                    r.memory = r.memory[:MEMORY_CAPACITY]
+                    r.memory = r.memory[:cap]
 
         # Metrics
         living = [r for r in self.residents if r.alive]
@@ -1565,6 +1671,12 @@ class Simulation:
             'crop_types': crop_type_counts,
             'livestock_types': livestock_type_counts,
             'avg_ag_tech_mult': avg_ag_tech_mult,
+            'avg_intelligence': round(sum(r.traits.intelligence for r in living) / max(1, n), 3),
+            'avg_brain_capacity': round(sum(r.brain_capacity() for r in living) / max(1, n), 1),
+            'avg_knowledge_capacity': round(sum(r.knowledge_capacity() for r in living) / max(1, n), 1),
+            'avg_knowledge_domains': round(sum(len(r.known_knowledge) for r in living) / max(1, n), 2),
+            'avg_energy_intake': round(sum(r.energy_intake_today for r in living) / max(1, n), 1),
+            'avg_energy_spent': round(sum(r.energy_spent_today for r in living) / max(1, n), 1),
         }
         self.metrics_history.append(metrics)
         if len(self.metrics_history) > 5000:
@@ -1602,6 +1714,12 @@ class Simulation:
                 'end': round(r.traits.endurance, 2),
                 'soc': round(r.traits.sociability, 2),
                 'risk': round(r.traits.risk_tolerance, 2),
+                'iq': round(r.traits.intelligence, 2),
+                'usable_iq': round(r.usable_intelligence(), 2),
+                'brain_capacity': r.brain_capacity(),
+                'knowledge_capacity': r.knowledge_capacity(),
+                'energy_intake_today': round(r.energy_intake_today, 1),
+                'energy_spent_today': round(r.energy_spent_today, 1),
                 'bonds': len(r.bonds),
                 'children': r.children,
                 'skills': {k: round(v, 1) for k, v in r.skills.items()},

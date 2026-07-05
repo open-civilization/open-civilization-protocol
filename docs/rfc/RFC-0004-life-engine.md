@@ -421,10 +421,68 @@ Residents MUST have bounded, lossy memory.
   - social memory (individuals encountered, interaction outcomes)
   - procedural memory (techniques or behaviors learned)
 - Memory retrieval MAY be imperfect (partial recall, false associations).
+- Capacity for spatial/social memory and capacity for procedural/knowledge memory MUST be
+  governed separately (implemented — see Cognition Model below): a resident with room to
+  track more places is not thereby able to hold more distinct skills, and vice versa.
 
 ### Memory and Knowledge
 
 Memory is the individual-level substrate on which the knowledge system (RFC-0006) builds. Without persistent individual memory, there is no foundation for cultural transmission.
+
+## Cognition Model (implemented)
+
+Phase 1 originally specified "cognitive budget allocation" and "learning rate" as trait
+categories (see Trait System below) and a finite memory capacity (see Memory Requirements
+above), but left both unquantified. This section makes them concrete, using a
+computer-hardware analogy that keeps the three resources conceptually distinct and
+individually variable, as Law 8 requires:
+
+- **IQ / CPU** — `Traits.intelligence`, a heritable trait in the same family as
+  strength/speed/perception. It is a ceiling, not a guaranteed rate: actual "usable
+  compute" is intelligence throttled by available energy
+  (`usable_intelligence = intelligence × min(1, energy / COMPUTE_ENERGY_THRESHOLD)`),
+  the same principle as a CPU clocking down under insufficient power. A starving genius
+  learns no faster than a well-fed average mind. Thinking itself has a metabolic cost
+  (`THINKING_ENERGY_COST`, scaled by intelligence), so raw intelligence is not a free
+  advantage.
+- **RAM / working memory** — `Resident.brain_capacity()`, bounding how many spatial-memory
+  entries a resident can track at once. Varies by age (lower before `REPRODUCTION_AGE`,
+  peak in adulthood, declining after `BRAIN_CAPACITY_ELDER_ONSET`), by chronic
+  malnutrition (`malnutrition_debt`), and by the heritable intelligence trait. This
+  replaces a single flat constant that was previously identical for every resident,
+  which violated the Heterogeneity Requirement above.
+- **Disk / long-term knowledge capacity** — `Resident.knowledge_capacity()`, bounding how
+  many distinct knowledge domains (`known_knowledge` entries) a resident can hold onto at
+  once. When a resident learns something new while already at capacity, the weakest-held
+  domain is forgotten to make room. Writing (RFC-0006) raises this ceiling
+  (`WRITING_KNOWLEDGE_CAPACITY_BONUS`) by externalizing memory outside any single brain —
+  before this cap existed, a long-lived, well-traveled resident could accumulate every
+  skill in the simulation, which is the literal mechanism behind the "everyone ends up
+  knowing everything" unrealism this model exists to prevent.
+
+### Cognition Parameters
+
+| Parameter                        | Value | Rationale                                                        |
+|-----------------------------------|-------|--------------------------------------------------------------------|
+| COMPUTE_ENERGY_THRESHOLD          | 1200  | Energy at/above which intelligence runs at full throttle           |
+| THINKING_ENERGY_COST              | 3.0   | Daily kcal cost of cognition, scaled by intelligence                |
+| BASE_BRAIN_CAPACITY               | 50    | Working-memory slots at peak adulthood, well-nourished              |
+| BRAIN_CAPACITY_CHILD_MULT         | 0.4   | Working memory is still developing before REPRODUCTION_AGE          |
+| BRAIN_CAPACITY_ELDER_ONSET        | 60    | Age at which working-memory decline begins                          |
+| BRAIN_CAPACITY_ELDER_SPAN         | 40    | Span over which that decline completes                              |
+| BASE_KNOWLEDGE_CAPACITY           | 6     | Distinct knowledge domains an unlettered mind can hold               |
+| WRITING_KNOWLEDGE_CAPACITY_BONUS  | 10    | Additional domains once writing externalizes memory                 |
+| LEARNING_ENERGY_COST              | 8.0   | kcal cost to a listener who successfully learns something new       |
+| TEACHING_ENERGY_COST              | 5.0   | kcal cost to a speaker for actively transmitting knowledge          |
+
+### Consequences for Emergence
+
+Teaching and learning both require energy surplus above the respective cost, same as
+movement already required affording the terrain's movement cost. Combined with capacity
+limits that vary by age, nutrition, and heritable intelligence, no individual can
+realistically hold every skill or travel indefinitely regardless of condition — this is
+what makes specialization and division of labor a consequence of individual constraint
+rather than a scripted outcome, per the Heterogeneity Requirement's stated purpose.
 
 ## Trait System
 
@@ -436,10 +494,10 @@ Phase 1 SHOULD include traits affecting:
 
 - physical capability (strength, speed, endurance)
 - perception range or quality
-- cognitive budget allocation
+- cognitive budget allocation (implemented — `intelligence` trait, throttled by energy; see Cognition Model)
 - risk tolerance
 - sociability (tendency toward cooperation vs. solitary behavior)
-- learning rate
+- learning rate (implemented — same `intelligence` trait; see Cognition Model)
 - disease immunity (implemented — drives differential survival during epidemics, see Mortality Factors)
 
 ### Trait Properties
@@ -530,6 +588,8 @@ This RFC is subordinate to RFC-0001 Universe Constitution.
 ### Law 8: Bounded Computation
 
 - heterogeneous cognitive budgets, no perfect-play reasoning
+- implemented via the `intelligence` trait, throttled by available energy, plus
+  age/nutrition-varying working-memory and knowledge-capacity ceilings — see Cognition Model
 
 ### Law 10: Entropy
 
