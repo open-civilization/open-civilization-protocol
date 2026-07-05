@@ -65,6 +65,13 @@ def restart_server(target: DeployTarget, settle_seconds: float = 6.0, respawn_ti
     before = target.ssh(f"pgrep -f \"{target.run_cmd}\"", timeout=10)
     before_pids = set(before.stdout.split())
 
+    log_path = f"{target.remote_root}/{target.log_file}"
+    line_count = target.ssh(f"wc -l < {log_path} 2>/dev/null || echo 0", timeout=10)
+    try:
+        before_log_lines = int(line_count.stdout.strip() or 0)
+    except ValueError:
+        before_log_lines = 0
+
     target.ssh(f"pkill -9 -f \"{target.run_cmd}\"", timeout=15)
 
     deadline = time.time() + respawn_timeout
@@ -80,8 +87,12 @@ def restart_server(target: DeployTarget, settle_seconds: float = 6.0, respawn_ti
 
     errors = None
     if started:
+        # Only scan log lines written since THIS restart — the log file is never
+        # rotated, so grepping the whole thing would keep finding an old crash's
+        # traceback forever and report every future restart as failed even once
+        # the underlying bug is long fixed.
         err_check = target.ssh(
-            f"grep -i 'error\\|traceback' {target.remote_root}/{target.log_file} | tail -30",
+            f"tail -n +{before_log_lines + 1} {log_path} | grep -i 'error\\|traceback' | tail -30",
             timeout=15,
         )
         errors = err_check.stdout.strip() or None
