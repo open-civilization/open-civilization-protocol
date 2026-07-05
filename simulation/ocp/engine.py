@@ -461,7 +461,7 @@ class Resident:
     energy_spent_today: float = 0.0   # gross kcal spent this tick (upkeep + whatever action was taken)
 
     def view_radius(self):
-        return max(1, int((PERCEPTION_BASE_RADIUS + self.traits.sociability * 2 + 2) * self.traits.perception * 1.5) + 4)
+        return max(1, int((PERCEPTION_BASE_RADIUS + self.traits.sociability * 2 + 2) * self.traits.perception * 1.5) + 4 + int(self.traits.perception * 2)) + 2
 
     def usable_intelligence(self):
         """Raw IQ throttled by available energy — a starving brain can't think at its
@@ -798,7 +798,7 @@ def decide(r, grid, residents, tick, pressure=0.0):
             return ('interact', None, None, t.id) if random.random() < (1.0 / (1 + r.traits.sociability * 2)) * 1.5 else ('rest', None, None, None)
 
     # FORAGE if not full
-    if r.energy < 2400 and here.biomass > 10:
+    if r.energy < 2400 and here.biomass > 10 and random.random() < (1.0 - (self._pressure - 1.0) * 0.2):
         return ('forage', None, None, None)
 
     # EXPLORE

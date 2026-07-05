@@ -855,6 +855,80 @@ def _broken_windows_theory_compare(history, state):
     return None
 
 
+def _role_theory_compare(history, state):
+    role_disruptions = 0
+    total_residents = len(state['residents'])
+    avg_bonds = mean([resident['bonds'] for resident in state['residents']])
+
+    # Check role fulfillment based on expected bond counts
+    expected_bond_threshold = 3  # assuming 3 is an expected practical bond count
+    if avg_bonds < expected_bond_threshold:
+        role_disruptions = expected_bond_threshold - avg_bonds
+
+    if role_disruptions > 0:
+        return TheoryFinding(
+            theory='Role Theory',
+            citation='Biddle, B. J. (1986)',
+            prediction='In contexts of resource scarcity, individuals will struggle to fulfill their social roles, leading to a breakdown in expected behaviors and weakening social cohesion.',
+            observed={'avg_bonds': avg_bonds, 'role_disruptions': role_disruptions},
+            gap='The average bond count falls below expected thresholds, indicating a potential failure in fulfilling social roles as predicted by Role Theory.',
+            severity='high',
+            suggested_investigation='examine role expectations vs. actual bonding behavior'
+        )
+    return None
+
+
+def _bystander_effect_compare(history, state):
+    avg_bond_count = mean([resident['bonds'] for resident in state['residents']])
+    avg_pressure = mean([tick['pressure'] for tick in history])
+
+    if avg_bond_count > 1 or avg_pressure < 1:
+        return None  # No meaningful gap
+
+    # If high social pressure is present but bonding remains low
+    gap = 1 - avg_bond_count  # A measure of how far the observed bonds are from potential maximum
+    severity = 'high' if gap > 0.5 else 'moderate'
+    return TheoryFinding(
+        theory='Bystander Effect',
+        citation='Latane, B., & Darley, J. M. (1970)',
+        prediction='In situations of acute social pressure and resource scarcity, individuals may hesitate to cooperate, leading to low in-group bonding.',
+        observed={'avg_bonds': avg_bond_count, 'avg_pressure': avg_pressure},
+        gap=gap,
+        severity=severity,
+        suggested_investigation='examine social interactions and decision-making under pressure'
+    )
+
+
+def _weak_ties_compare(history, state):
+    if not history:
+        return None
+
+    total_population = 0
+    total_bonds = 0
+    total_residents = len(state['residents'])
+
+    for tick in history:
+        total_population += tick['pop']
+        total_bonds += sum(res['bonds'] for res in state['residents'])
+
+    avg_population = total_population / len(history)
+    avg_bonds_per_resident = total_bonds / total_residents if total_residents > 0 else 0
+
+    if avg_bonds_per_resident < 1:
+        return TheoryFinding(
+            id="weak_ties_insufficient",
+            severity="critical",
+            title="Insufficient Weak Ties",
+            summary="The average number of weak ties in the population is below the threshold needed for resilience against extinction.",
+            evidence={
+                "avg_bonds_per_resident": avg_bonds_per_resident,
+                "avg_population": avg_population
+            },
+            theory_tags=["social_networking", "weak_ties"]
+        )
+    return None
+
+
 LENSES: list[TheoryLens] = [
     TheoryLens("Malthusian population dynamics", "Malthus (1798)",
                "Population oscillates around carrying capacity under growth/check dynamics.",
@@ -928,6 +1002,15 @@ LENSES: list[TheoryLens] = [
     TheoryLens("Broken Windows Theory", "Wilson, J. Q., & Kelling, G. L. (1982)",
                "In environments characterized by neglect and limited resources, small signs of disorder can lead to increased social decay and diminished social bonds, exacerbating the population's challenges in cohesion and resilience.",
                _broken_windows_theory_compare),
+    TheoryLens("Role Theory", "Biddle, B. J. (1986). Role Theory: Expectations, Identities, and Behaviors.",
+               "In contexts of resource scarcity, individuals will struggle to fulfill their social roles, leading to a breakdown in expected behaviors and weakening social cohesion.",
+               _role_theory_compare),
+    TheoryLens("Bystander Effect", "Latane, B., & Darley, J. M. (1970)",
+               "In situations of acute social pressure and resource scarcity, individuals may hesitate to cooperate or bond with others, leading to lower rates of in-group cooperation even when group survival is at stake.",
+               _bystander_effect_compare),
+    TheoryLens("Weak Ties Theory", "Granovetter, M. S. (1973). The Strength of Weak Ties.",
+               "The theory predicts that a society with a high number of weak social ties will exhibit greater resilience and adaptability, which can prevent extinction even in the face of adverse conditions.",
+               _weak_ties_compare),
 # AUTO-DISCOVERED LENSES REGISTERED BELOW THIS LINE — appended by discovery.py
 ]
 
