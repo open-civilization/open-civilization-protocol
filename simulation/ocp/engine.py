@@ -283,7 +283,7 @@ def _ag_tech_mult(r):
     return mult
 
 
-def _transmission_fidelity(speaker, pressure):
+def _transmission_fidelity(speaker, pressure=0.0):
     """Best available channel fidelity for knowledge originating from `speaker`,
     combining independent channels (writing + oral) via redundant-channel recovery."""
     has_writing = 'writing' in speaker.known_knowledge
