@@ -996,6 +996,29 @@ def _group_cohesion_compare(history, state):
     return None
 
 
+def _resource_mobilization_compare(history, state):
+    # Extract relevant metrics from the history
+    pressures = [tick['pressure'] for tick in history]
+    avg_pressure = mean(pressures)
+    # Check for mobilization indicators
+    born_counts = [tick['births'] for tick in history]
+    avg_births = mean(born_counts)
+    avg_bonds = state['residents'][0]['bonds'] if state['residents'] else 0
+    # There should be a significant number of births and bonds in response to pressure
+    if avg_pressure > 1.2 and (avg_births < 5 and avg_bonds < 1):
+        return TheoryFinding(
+            run=2,
+            theory='Resource Mobilization Theory',
+            citation='Tilly, C. (1978)',
+            prediction='Under high carrying-capacity pressure, social movements will emerge when residents identify shared grievances and mobilize resources toward collective action to improve their situation.',
+            observed={'avg_pressure': avg_pressure, 'avg_births': avg_births, 'avg_bonds': avg_bonds},
+            gap='Low evidence of social movement mobilization despite high pressure.',
+            severity='high',
+            suggested_investigation='investigate residents’ grievances and potential collective actions'
+        )
+    return None
+
+
 LENSES: list[TheoryLens] = [
     TheoryLens("Malthusian population dynamics", "Malthus (1798)",
                "Population oscillates around carrying capacity under growth/check dynamics.",
@@ -1087,6 +1110,9 @@ LENSES: list[TheoryLens] = [
     TheoryLens("Group Cohesion Theory", "Leonard B. Borkowski, 'Group Cohesion: Theoretical and Practical Perspectives', 1983",
                "Greater cohesion among residents would lead to more successful survival outcomes, while lack of cohesion correlates with higher extinction rates.",
                _group_cohesion_compare),
+    TheoryLens("Resource Mobilization Theory", "Tilly, C. (1978)",
+               "Under high carrying-capacity pressure, social movements will emerge when residents identify shared grievances and mobilize resources toward collective action to improve their situation.",
+               _resource_mobilization_compare),
 # AUTO-DISCOVERED LENSES REGISTERED BELOW THIS LINE — appended by discovery.py
 ]
 
