@@ -27,6 +27,10 @@ MAX_ENERGY = 3000.0             # full caloric reserve — "well-fed" baseline
 REPRODUCTION_ENERGY = 1800.0    # reserve required (55% of max) before reproduction is attempted
 REPRODUCTION_COST = 750.0       # reserve spent per parent per birth
 OFFSPRING_ENERGY = 600.0        # newborn starting reserve
+# Reproduction prefers an existing bond over the nearest stranger (see decide()'s REPRODUCE
+# block) — this is what makes population structure into real kin-based groups.
+REPRODUCTION_BOND_THRESHOLD = 0.1   # matches LANGUAGE_BOND_THRESHOLD's scale: a real if modest relationship
+STRANGER_REPRODUCTION_CHANCE = 0.15 # reproducing with a totally unbonded stranger still happens sometimes
 # Migration (see the MIGRATE (general) block in decide()) is a costly last resort, not a
 # default response to hunger — it requires a real energy surplus to spend on the journey.
 MIGRATION_ENERGY_SURPLUS_MIN = 1800.0  # 60% of max; deliberately at REPRODUCTION_ENERGY's level —
@@ -296,6 +300,18 @@ def _pick_archetype(archetypes, zone):
     names = list(archetypes.keys())
     weights = [archetypes[n]['zone_weights'].get(zone, 0.1) for n in names]
     return random.choices(names, weights=weights, k=1)[0]
+
+
+def _relatedness(a, b):
+    """Kinship via parent_id — parent-child or full siblings both count, everyone else 0.
+    Used by both raiding (Hamilton's rule stranger-preference) and social/reproductive
+    familiarity bias (see decide()): kin and existing bonds are what makes group-like
+    clustering emerge without an authored Group object (RFC-0004 Group Behavior)."""
+    if a.parent_id is None or b.parent_id is None:
+        return 0.0
+    if a.parent_id == b.id or b.parent_id == a.id:
+        return 0.5  # parent-child
+    return 0.5 if a.parent_id == b.parent_id else 0.0  # full siblings
 
 
 def _ag_tech_mult(r):
@@ -759,24 +775,17 @@ def decide(r, grid, residents, tick, pressure=0.0):
     if r.energy < 540 and here.biomass < 3 and here.leftover < 2:
         adjacent = [(res, d) for res, d in near_res if d <= 1 and res.energy > 900]
         if adjacent and random.random() < raid_base:
-            # Hamilton's rule: prefer raiding strangers over genetic relatives
-            # Compute relatedness via parent_id — siblings share a parent, parent-child share
-            def relatedness(a, b):
-                if a.parent_id is None or b.parent_id is None:
-                    return 0.0
-                if a.parent_id == b.id or b.parent_id == a.id:
-                    return 0.5  # parent-child
-                return 0.5 if a.parent_id == b.parent_id else 0.0  # full siblings
+            # Hamilton's rule: prefer raiding strangers over genetic relatives (see _relatedness)
             strangers = [(res, d) for res, d in adjacent
                          if (res.id not in r.bonds or r.bonds[res.id].quality <= 0)
-                         and relatedness(r, res) < 0.25]
+                         and _relatedness(r, res) < 0.25]
             # Below extreme pressure, prefer seizing from strangers over one's own
             # established relationships or kin; only true crisis (pressure >= 2.0) erodes that
             # Raise pressure threshold for raiding relatives (kin discount per Hamilton's rule)
             pool = strangers if (strangers and pressure < 1.5) else adjacent
             if pool is adjacent:
                 # Even among all adjacent, prefer lower-relatedness targets when pressure is moderate
-                pool.sort(key=lambda x: relatedness(r, x[0]))
+                pool.sort(key=lambda x: _relatedness(r, x[0]))
             target = max(pool, key=lambda x: x[0].energy)[0]
             return ('raid', None, None, target.id)
 
@@ -843,17 +852,36 @@ def decide(r, grid, residents, tick, pressure=0.0):
         else:
             fertility *= max(0.5, 1.0 - (r.malnutrition_debt / NUTRITION_DEBT_CAP) * 0.5)
         if random.random() < fertility:
-            partners = [(res, d) for res, d in near_res
-                        if res.energy > REPRODUCTION_ENERGY and res.age > REPRODUCTION_AGE]
+            # Reproduction prefers an already-bonded partner — real, if modest, relationship
+            # required (REPRODUCTION_BOND_THRESHOLD) — over the nearest qualifying stranger.
+            # This is what makes population structure into real kin-based groups rather than
+            # everyone blending into one undifferentiated pool regardless of history (RFC-0004
+            # Group Behavior: groups emerge from repeated interaction + kinship, not proximity
+            # alone). Not an absolute gate — reproducing with a completely unbonded stranger
+            # still happens sometimes (STRANGER_REPRODUCTION_CHANCE), real exogamy exists too.
+            bonded = [(res, d) for res, d in near_res
+                      if res.energy > REPRODUCTION_ENERGY and res.age > REPRODUCTION_AGE
+                      and res.id in r.bonds and r.bonds[res.id].quality > REPRODUCTION_BOND_THRESHOLD]
+            if bonded:
+                partners = bonded
+            elif random.random() < STRANGER_REPRODUCTION_CHANCE:
+                partners = [(res, d) for res, d in near_res
+                            if res.energy > REPRODUCTION_ENERGY and res.age > REPRODUCTION_AGE]
+            else:
+                partners = []
             if partners:
                 p = min(partners, key=lambda x: x[1])[0]
                 if abs(p.x - r.x) + abs(p.y - r.y) <= 1:
                     return ('reproduce', None, None, p.id)
                 return _step_toward(r.x, r.y, p.x, p.y, grid)
 
-    # SOCIAL
+    # SOCIAL — prefer approaching someone already familiar (bonded or kin) over a genuine
+    # stranger, mirroring real intergroup wariness: repeated trust builds within an existing
+    # circle, contact with true outsiders stays comparatively rare (see RAID/_maybe_trade for
+    # where outsider contact actually resolves — as conflict or exchange, not casual bonding).
     if r.traits.sociability > 0.5 and near_res and pressure > 1.0 and random.random() < 0.5:
-        t = random.choice(near_res)[0]
+        familiar = [res for res, d in near_res if res.id in r.bonds or _relatedness(r, res) > 0]
+        t = random.choice(familiar) if familiar and random.random() < 0.8 else random.choice(near_res)[0]
         if abs(t.x - r.x) + abs(t.y - r.y) <= 1:
             return ('interact', None, None, t.id) if r.age > 5 and random.random() < (1.0 / (1 + r.traits.sociability * 2)) * 1.5 or random.random() < 0.1 else ('rest', None, None, None)
 
