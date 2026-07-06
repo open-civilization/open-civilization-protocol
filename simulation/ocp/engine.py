@@ -120,13 +120,13 @@ SEASONS = ['spring', 'summer', 'autumn', 'winter']
 CLIMATE_ZONES = {
     'cold':      {'spring': 1.1, 'summer': 0.8, 'autumn': 0.35, 'winter': 0.005,
                   'spring_upkeep': 0.95, 'summer_upkeep': 1.0, 'autumn_upkeep': 1.1, 'winter_upkeep': 2.8,
-                  'grazing_suitability': 1.0, 'farming_suitability': 0.1},
+                  'grazing_suitability': 1.0, 'farming_suitability': 0.1, 'mining_suitability': 1.0},
     'temperate': {'spring': 1.4, 'summer': 1.0, 'autumn': 0.55, 'winter': 0.02,
                   'spring_upkeep': 0.9, 'summer_upkeep': 1.0, 'autumn_upkeep': 1.05, 'winter_upkeep': 1.8,
-                  'grazing_suitability': 0.25, 'farming_suitability': 1.0},
+                  'grazing_suitability': 0.25, 'farming_suitability': 1.0, 'mining_suitability': 0.3},
     'tropical':  {'spring': 1.2, 'summer': 1.0, 'autumn': 0.75, 'winter': 0.05,
                   'spring_upkeep': 0.9, 'summer_upkeep': 1.05, 'autumn_upkeep': 1.0, 'winter_upkeep': 1.3,
-                  'grazing_suitability': 0.0, 'farming_suitability': 0.0},
+                  'grazing_suitability': 0.0, 'farming_suitability': 0.0, 'mining_suitability': 0.0},
 }
 
 # Terrain suitability for domestication (physical property of the land, like biomass_cap)
@@ -134,6 +134,10 @@ CLIMATE_ZONES = {
 # Tropical zone's zone-level suitability above is 0, so terrain suitability never activates there.
 TERRAIN_GRAZING = {'plains': 0.8, 'mountain': 1.0, 'desert': 0.3}
 TERRAIN_FARMING = {'plains': 1.0, 'river': 0.7, 'forest': 0.2}
+# Mining is cold-zone-dominant real geology (coal/iron/oil concentrate in specific rock
+# formations, not arable land) — mountain terrain is the primary source, same physical-property
+# pattern as grazing/farming suitability above.
+TERRAIN_MINING = {'mountain': 1.0, 'desert': 0.4}
 
 DOMESTICATION_DISCOVERY_CHANCE = 0.0025  # per qualifying forage tick, before suitability scaling
 # Not every wild variant a forager experiments with actually becomes a stable domesticate —
@@ -169,6 +173,26 @@ LIVESTOCK_ARCHETYPES = {
     'browser': {'energy_density_mult': 0.95, 'zone_weights': {'tropical': 2.0, 'temperate': 1.0, 'cold': 0.2}},
 }
 
+# Mineral resources — non-food, tradeable/raidable goods rather than a caloric energy source.
+# Cold-zone-dominant real geology (coal seams, iron-bearing rock, oil deposits concentrate in
+# specific formations, not arable temperate/tropical land), discovered through the same
+# Experiment pathway as crop/livestock domestication (see `mining` knowledge below).
+MINERAL_ARCHETYPES = {
+    'coal':     {'zone_weights': {'cold': 3.0, 'temperate': 0.3, 'tropical': 0.0}},
+    'iron_ore': {'zone_weights': {'cold': 2.0, 'temperate': 0.4, 'tropical': 0.0}},
+    'oil':      {'zone_weights': {'cold': 1.5, 'temperate': 0.2, 'tropical': 0.0}},
+}
+MINING_DISCOVERY_CHANCE = 0.0025  # per qualifying forage tick, same order as DOMESTICATION_DISCOVERY_CHANCE
+MINING_YIELD_PER_TICK = 0.8       # base quantity added to a miner's stockpile per working tick
+CROP_SURPLUS_CONVERSION = 0.02    # kcal-of-excess-harvest -> tradeable crop-resource units
+RESOURCE_STOCKPILE_DECAY = 0.01   # per-tick fractional decay on held resources (spoilage/consumption by others)
+
+# Trade — see _maybe_trade. Opportunistic, individual, probabilistic exchange during an
+# ordinary interaction; not a scripted allocation or trade-route algorithm (RFC-0007 Non-Goals).
+TRADE_CHANCE = 0.2               # per qualifying interaction
+TRADE_SURPLUS_FLOOR = 2.0        # must hold at least this much of a good before considering a gift
+TRADE_GIFT_FRACTION = 0.25       # fraction of the surplus given away per successful trade
+
 # Agricultural technology ladder — each tier multiplies the land's energy-density ceiling
 # further, mirroring the real historical trajectory (irrigation civilizations, then
 # selective breeding of higher-yield varieties over generations, then industrial-era
@@ -183,6 +207,11 @@ BREEDING_SKILL_THRESHOLD = 60.0        # generations of selection require real m
 BREEDING_MULT = 1.6
 FERTILIZER_DISCOVERY_CHANCE = 0.0015   # per tick, requires writing (systematic record-keeping) + breeding
 FERTILIZER_MULT = 2.2
+# Chemical fertilizer and mechanized agriculture historically followed industrial inputs
+# (steel, coal-powered machinery), not just written record-keeping — requiring the resident
+# hold some minimum accumulated iron_ore or coal grounds "fertilizer needs the industrial
+# revolution first" as a literal resource dependency rather than only a knowledge gate.
+FERTILIZER_INDUSTRIAL_INPUT_MIN = 5.0
 
 # ── Caloric Health Model ──
 # Cold, hunger, and technology are unified through a single physical quantity: how many
@@ -459,6 +488,9 @@ class Resident:
     food_total: float = 0.0
     skills: dict = field(default_factory=lambda: {'food_storage': 0.0})
     known_knowledge: dict = field(default_factory=lambda: {})  # knowledge_name -> {level, source, tick_learned}
+    resources: dict = field(default_factory=lambda: {})  # resource_name (crop/mineral archetype) -> held quantity;
+                                                            # physical goods distinct from energy/knowledge, tradeable
+                                                            # or raidable (see CROP_ARCHETYPES, MINERAL_ARCHETYPES)
     malnutrition_debt: float = 0.0  # cumulative nutritional stress; drives aging independent of raw age
     energy_intake_today: float = 0.0  # gross kcal gained this tick (foraging, harvest, being fed)
     energy_spent_today: float = 0.0   # gross kcal spent this tick (upkeep + whatever action was taken)
@@ -713,6 +745,11 @@ def decide(r, grid, residents, tick, pressure=0.0):
     raid_base = 0.3 + r.traits.risk_tolerance * 0.5
     if pressure > 1.2 and r.traits.sociability < 0.5:
         raid_base += 0.25 * (pressure - 1.2)
+    # Resource scarcity (holding none of any mineral at all) sharpens the raid incentive once
+    # already at the hunger-driven trigger below — same Malthusian release-valve logic as
+    # above, extended to named goods rather than only calories.
+    if pressure > 1.0 and not any(m in r.resources for m in MINERAL_ARCHETYPES):
+        raid_base += 0.15
 
     if r.energy < 540 and here.biomass < 3 and here.leftover < 2:
         adjacent = [(res, d) for res, d in near_res if d <= 1 and res.energy > 900]
@@ -876,6 +913,7 @@ def _do_forage(r, grid, tick, residents=None):
     # Suitability is a physical fact of terrain x zone, not a scripted unlock.
     farm_suit = TERRAIN_FARMING.get(cell.terrain, 0) * zone_cfg['farming_suitability']
     graze_suit = TERRAIN_GRAZING.get(cell.terrain, 0) * zone_cfg['grazing_suitability']
+    mine_suit = TERRAIN_MINING.get(cell.terrain, 0) * zone_cfg['mining_suitability']
 
     # Trying a wild variant is one roll; whether it actually becomes a stable domesticate
     # is a second, independent roll (DOMESTICATION_SUCCESS_CHANCE) — most experiments with
@@ -900,6 +938,14 @@ def _do_forage(r, grid, tick, residents=None):
                     'crop_type': livestock_type,
                 })
                 discovery_msg = f'{r.name} domesticated {livestock_type} livestock'
+    if mine_suit > 0 and 'mining' not in r.known_knowledge:
+        if random.random() < MINING_DISCOVERY_CHANCE * mine_suit:
+            mineral_type = _pick_archetype(MINERAL_ARCHETYPES, cell.climate)
+            _learn_knowledge(r, 'mining', {
+                'level': 0.15, 'source': 'experimented_with_extraction', 'tick_learned': tick,
+                'crop_type': mineral_type,
+            })
+            discovery_msg = f'{r.name} discovered how to mine {mineral_type}'
 
     # Agricultural technology ladder — irrigation, selective breeding, fertilizer/pesticides.
     # Each is an independent Experiment-pathway discovery gated on a real prerequisite:
@@ -921,6 +967,8 @@ def _do_forage(r, grid, tick, residents=None):
         discovery_msg = f'{r.name} began selectively breeding higher-yield crops'
     if ('writing' in r.known_knowledge and 'selective_breeding' in r.known_knowledge
             and 'fertilizer' not in r.known_knowledge
+            and (r.resources.get('iron_ore', 0) > FERTILIZER_INDUSTRIAL_INPUT_MIN
+                 or r.resources.get('coal', 0) > FERTILIZER_INDUSTRIAL_INPUT_MIN)
             and random.random() < FERTILIZER_DISCOVERY_CHANCE):
         _learn_knowledge(r, 'fertilizer', {
             'level': 0.2, 'source': 'systematic_agricultural_science', 'tick_learned': tick
@@ -951,6 +999,17 @@ def _do_forage(r, grid, tick, residents=None):
         if tier_skill in r.known_knowledge and random.random() < 0.025:
             _reinforce_knowledge(r, tier_skill, 0.02)
 
+    # Mining — extraction adds directly to the miner's personal resource stockpile rather
+    # than energy; minerals are goods to trade or have raided, not food.
+    if mine_suit > 0 and 'mining' in r.known_knowledge:
+        mineral_type = r.known_knowledge['mining'].get('crop_type')
+        if mineral_type:
+            skill = r.skills.get('mining', 0) / 100.0
+            yield_amount = MINING_YIELD_PER_TICK * (0.5 + skill) * mine_suit
+            r.resources[mineral_type] = r.resources.get(mineral_type, 0.0) + yield_amount
+        if random.random() < 0.03:
+            _reinforce_knowledge(r, 'mining', 0.02)
+
     # Harvest from biomass
     if cell.biomass > 0:
         harvest = min(cell.biomass, 15 * r.traits.strength) * random.uniform(0.5, 1.0)
@@ -970,8 +1029,18 @@ def _do_forage(r, grid, tick, residents=None):
         if graze_suit > 0 and 'animal_husbandry' in r.known_knowledge:
             conversion += r.skills.get('animal_husbandry', 0) / 100.0 * graze_suit * 20.0
         gain = harvest * conversion
-        r.energy = min(MAX_ENERGY, r.energy + gain - effort)
+        pre_cap_energy = r.energy + gain - effort
+        r.energy = min(MAX_ENERGY, pre_cap_energy)
         r.food_total += harvest
+
+        # Surplus beyond what a farmer can personally consume becomes a tradeable/raidable
+        # stockpile rather than being wasted at the energy cap — only real, sustained surplus
+        # (a well-fed farmer producing more than they can eat), not routine foraging gain.
+        if farm_suit > 0 and 'crop_cultivation' in r.known_knowledge and pre_cap_energy > MAX_ENERGY:
+            crop_type = r.known_knowledge['crop_cultivation'].get('crop_type')
+            if crop_type:
+                surplus = (pre_cap_energy - MAX_ENERGY) * CROP_SURPLUS_CONVERSION
+                r.resources[crop_type] = r.resources.get(crop_type, 0.0) + surplus
 
         # Leave some food behind (emergent storage)
         # Storage skill increases how much food is retained
@@ -1041,6 +1110,29 @@ def _maybe_discover_language(r, target, tick, pressure, cooperative=False):
     return None
 
 
+def _maybe_trade(r, target, tick):
+    """Opportunistic exchange of surplus resources (crops/minerals) between two residents who
+    happen to meet — not a scripted trade route (RFC-0007 explicitly forbids that), just
+    individual reciprocity extended to named goods the same way food-sharing already works for
+    calories. A resident with real surplus of something the other visibly lacks may give some
+    away; this is a one-off gift-style exchange, not a negotiated barter."""
+    if not r.resources or random.random() >= TRADE_CHANCE:
+        return None
+    candidates = [
+        name for name, qty in r.resources.items()
+        if qty > TRADE_SURPLUS_FLOOR and target.resources.get(name, 0.0) < qty * 0.3
+    ]
+    if not candidates:
+        return None
+    good = random.choice(candidates)
+    gift = r.resources[good] * TRADE_GIFT_FRACTION
+    r.resources[good] -= gift
+    target.resources[good] = target.resources.get(good, 0.0) + gift
+    r.bonds[target.id].quality = min(1.0, r.bonds[target.id].quality + 0.15)
+    target.bonds[r.id].quality = min(1.0, target.bonds[r.id].quality + 0.15)
+    return f'{r.name} traded {good} with {target.name}'
+
+
 def _do_interact(r, target_id, residents, tick, pressure=0.0):
     target = None
     for res in residents:
@@ -1074,6 +1166,12 @@ def _do_interact(r, target_id, residents, tick, pressure=0.0):
         target.bonds[r.id].quality = min(1.0, target.bonds[r.id].quality + 0.3)
         lang_msg = _maybe_discover_language(r, target, tick, pressure, cooperative=True)
         return lang_msg or f'{r.name} shared food with {target.name}'
+
+    # Trade — same emergent, individual-level pattern as food-sharing above, but for named
+    # crop/mineral resources rather than calories; see _maybe_trade.
+    trade_msg = _maybe_trade(r, target, tick)
+    if trade_msg:
+        return trade_msg
 
     # Exchange spatial memory (with distortion per RFC-0001 Law 6)
     r.bonds[target.id].quality = min(1.0, r.bonds[target.id].quality + 0.1)
@@ -1192,7 +1290,23 @@ def _do_raid(r, target_id, residents, tick):
             r.bonds[target.id].quality = max(-1, r.bonds[target.id].quality - 0.5)
         if r.id in target.bonds:
             target.bonds[r.id].quality = max(-1, target.bonds[r.id].quality - 0.5)
-        return f'{r.name} raided {target.name} — stole {stolen:.0f} food'
+
+        # A raid also seizes whatever named resource the raider is most short of, if the
+        # victim actually holds any — resource conflict riding the same win/lose resolution
+        # as the energy theft above, not a separate mechanic.
+        resource_msg = ''
+        if target.resources:
+            held_by_raider = set(r.resources.keys())
+            lacking = [name for name in target.resources if name not in held_by_raider]
+            steal_target = random.choice(lacking) if lacking else max(target.resources, key=target.resources.get)
+            steal_amount = target.resources[steal_target] * 0.5
+            if steal_amount > 0.01:
+                target.resources[steal_target] -= steal_amount
+                if target.resources[steal_target] < 0.01:
+                    del target.resources[steal_target]
+                r.resources[steal_target] = r.resources.get(steal_target, 0.0) + steal_amount
+                resource_msg = f' and {steal_amount:.1f} {steal_target}'
+        return f'{r.name} raided {target.name} — stole {stolen:.0f} food{resource_msg}'
     else:
         r.health -= random.uniform(10, 28)
         if r.id in target.bonds:
@@ -1326,6 +1440,15 @@ class Simulation:
             r.energy_intake_today = 0.0
             r.energy_spent_today = 0.0
             _energy_before_upkeep = r.energy
+
+            # Held resources (crops/minerals) decay slowly — spoilage, personal consumption,
+            # or informal give-away not otherwise modeled — same entropy principle as leftover
+            # food on the ground (RFC-0001 Law 10), so stockpiles don't grow unbounded.
+            if r.resources:
+                for res_name in list(r.resources.keys()):
+                    r.resources[res_name] *= (1.0 - RESOURCE_STOCKPILE_DECAY)
+                    if r.resources[res_name] < 0.01:
+                        del r.resources[res_name]
 
             # Upkeep — one tick's day-night caloric burn, shaped by season, zone, and
             # whichever cold-mitigation technologies this resident knows. Day and night
@@ -1637,6 +1760,17 @@ class Simulation:
                 livestock_type_counts[lt] = livestock_type_counts.get(lt, 0) + 1
         avg_ag_tech_mult = round(sum(c.ag_tech_mult for row in self.grid for c in row) / (GRID_W * GRID_H), 3)
 
+        mining_holders = sum(1 for r in living if 'mining' in r.known_knowledge)
+        mineral_type_counts: dict[str, int] = {}
+        for r in living:
+            mt = r.known_knowledge.get('mining', {}).get('crop_type')
+            if mt:
+                mineral_type_counts[mt] = mineral_type_counts.get(mt, 0) + 1
+        resource_totals: dict[str, float] = {}
+        for r in living:
+            for res_name, qty in r.resources.items():
+                resource_totals[res_name] = resource_totals.get(res_name, 0.0) + qty
+
         metrics = {
             'tick': tick,
             'season': season,
@@ -1674,6 +1808,9 @@ class Simulation:
             'crop_types': crop_type_counts,
             'livestock_types': livestock_type_counts,
             'avg_ag_tech_mult': avg_ag_tech_mult,
+            'mining_holders': mining_holders,
+            'mineral_types': mineral_type_counts,
+            'resource_totals': {k: round(v, 1) for k, v in resource_totals.items()},
             'avg_intelligence': round(sum(r.traits.intelligence for r in living) / max(1, n), 3),
             'avg_brain_capacity': round(sum(r.brain_capacity() for r in living) / max(1, n), 1),
             'avg_knowledge_capacity': round(sum(r.knowledge_capacity() for r in living) / max(1, n), 1),
@@ -1727,6 +1864,7 @@ class Simulation:
                 'children': r.children,
                 'skills': {k: round(v, 1) for k, v in r.skills.items()},
                 'knowledge': {k: round(v.get('level', 0), 3) for k, v in r.known_knowledge.items()},
+                'resources': {k: round(v, 1) for k, v in r.resources.items()},
             } for r in living]
 
             m = self.metrics_history[-1] if self.metrics_history else {}
