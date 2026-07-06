@@ -464,7 +464,7 @@ class Resident:
     energy_spent_today: float = 0.0   # gross kcal spent this tick (upkeep + whatever action was taken)
 
     def view_radius(self):
-        return max(1, int((PERCEPTION_BASE_RADIUS + self.traits.sociability * 2 + 2) * self.traits.perception * 1.5) + 4 + int(self.traits.perception * 2)) + 2
+        return max(1, int((PERCEPTION_BASE_RADIUS + self.traits.sociability * 4 + 2) * self.traits.perception * 1.5) + 4 + int(self.traits.perception * 2)) + 2
 
     def usable_intelligence(self):
         """Raw IQ throttled by available energy — a starving brain can't think at its
