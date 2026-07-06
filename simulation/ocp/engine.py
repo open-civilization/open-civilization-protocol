@@ -18,6 +18,7 @@ GRID_H = 80
 INITIAL_POPULATION = 55  # Seeded near total baseline carrying capacity (~5 cold + 10 temperate + 40 tropical)
 MAX_AGE = 100  # theoretical ceiling; nutritional history determines who actually approaches it
 REPRODUCTION_AGE = 13
+STATE_CACHE_TTL = 0.4  # seconds; see Simulation.get_state — absorbs rapid/concurrent polling
 
 # ── Energy Model (kcal) ──
 # `energy` is a resident's caloric reserve, modeled in real kilocalorie units so mortality
@@ -684,6 +685,18 @@ def _spawn(rid, grid, tick, parent=None, partner=None):
 
     child = Resident(rid, _rand_name(), x, y, 0, nrg, MAX_HEALTH, traits,
                     True, pid, gen, [], {}, tick)
+    if parent:
+        # Parent-child (and, if present, partner) bonds are inherent from birth — a family
+        # relationship doesn't need to be "discovered" through a chance social encounter the
+        # way a stranger's does. Quality starts at a real, meaningful baseline (comparable to
+        # a couple of successful cooperative acts), not zero; interactions start at 0 and grow
+        # naturally as the child actually spends time with its parent(s) (see decide()'s SOCIAL
+        # familiarity bias, which already treats kin as "familiar" targets).
+        child.bonds[parent.id] = Bond(parent.id, 0.3, tick)
+        parent.bonds[child.id] = Bond(child.id, 0.3, tick)
+        if partner:
+            child.bonds[partner.id] = Bond(partner.id, 0.3, tick)
+            partner.bonds[child.id] = Bond(child.id, 0.3, tick)
     child.known_knowledge = inherited_knowledge
     cap = child.knowledge_capacity()
     if len(child.known_knowledge) > cap:
@@ -1139,7 +1152,7 @@ def _maybe_discover_language(r, target, tick, pressure, cooperative=False):
     repeated game, and coordination pressure together (see constants above); an actual
     cooperative act (food sharing) is the strongest signal and gets a chance bonus over
     passive contact."""
-    if 'spoken_language' not in r.known_knowledge and random.random() < LANGUAGE_DISCOVERY_CHANCE:
+    if 'spoken_language' in r.known_knowledge:
         return None
     if len(r.bonds) < LANGUAGE_GROUP_SIZE:
         return None
@@ -1380,6 +1393,8 @@ class Simulation:
         self.total_deaths = 0
         self.lock = threading.Lock()
         self._next_id = 0
+        self._state_cache = None
+        self._state_cache_time = 0.0
 
         self.ai = AIEngine()
 
@@ -1878,6 +1893,15 @@ class Simulation:
     # ── Serialization ──
 
     def get_state(self):
+        # Short-TTL cache: this recomputes derived per-resident values (usable_intelligence,
+        # brain_capacity, knowledge_capacity) for every living resident on every call, which
+        # got measurably expensive as population and per-resident state grew (500+ residents,
+        # 8+ second responses observed live). A cache hit also skips self.lock entirely, so it
+        # doesn't queue up behind an in-progress tick — the actual dominant cost at high speed.
+        # The returned dict is a read-only snapshot; callers must not mutate it in place.
+        now = time.time()
+        if self._state_cache is not None and (now - self._state_cache_time) < STATE_CACHE_TTL:
+            return self._state_cache
         with self.lock:
             living = [r for r in self.residents if r.alive]
             terrain = []
@@ -1917,7 +1941,7 @@ class Simulation:
 
             m = self.metrics_history[-1] if self.metrics_history else {}
             zone_boundary = GRID_H // 3
-            return {
+            state = {
                 'gw': GRID_W, 'gh': GRID_H,
                 'terrain': terrain, 'biomass': biomass, 'leftover': leftover, 'cultivation': cultivation,
                 'residents': res_data,
@@ -1933,6 +1957,9 @@ class Simulation:
                     'names': ['cold', 'temperate', 'tropical'],
                 },
             }
+            self._state_cache = state
+            self._state_cache_time = now
+            return state
 
     # ── Control ──
 
