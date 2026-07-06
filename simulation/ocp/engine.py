@@ -157,9 +157,12 @@ CULTIVATION_MAX_BONUS = 7.0  # at cultivation=1.0, regrow is multiplied by (1 + 
 # agriculture historically leaned on calorie-dense-per-labor but bulkier tubers; legumes
 # are viable everywhere but are a secondary rather than staple crop).
 CROP_ARCHETYPES = {
-    'grain': {'energy_density_mult': 1.4, 'zone_weights': {'temperate': 3.0, 'tropical': 0.5, 'cold': 0.4}},
-    'tuber': {'energy_density_mult': 1.0, 'zone_weights': {'temperate': 0.8, 'tropical': 3.0, 'cold': 0.6}},
-    'legume': {'energy_density_mult': 1.15, 'zone_weights': {'temperate': 1.2, 'tropical': 1.5, 'cold': 0.3}},
+    'wheat':        {'energy_density_mult': 1.4,  'zone_weights': {'temperate': 3.0, 'tropical': 0.1, 'cold': 0.0}},
+    'rice':         {'energy_density_mult': 1.3,  'zone_weights': {'temperate': 2.0, 'tropical': 0.2, 'cold': 0.0}},
+    'soybean':      {'energy_density_mult': 1.15, 'zone_weights': {'temperate': 1.5, 'tropical': 0.1, 'cold': 0.0}},
+    'fruit':        {'energy_density_mult': 1.0,  'zone_weights': {'tropical': 3.0, 'temperate': 0.2, 'cold': 0.0}},
+    'sweet_potato': {'energy_density_mult': 0.55, 'zone_weights': {'cold': 1.0, 'temperate': 0.0, 'tropical': 0.0}},
+    'corn':         {'energy_density_mult': 0.6,  'zone_weights': {'cold': 1.0, 'temperate': 0.0, 'tropical': 0.0}},
 }
 LIVESTOCK_ARCHETYPES = {
     'grazer': {'energy_density_mult': 1.1, 'zone_weights': {'cold': 3.0, 'temperate': 1.0, 'tropical': 0.3}},

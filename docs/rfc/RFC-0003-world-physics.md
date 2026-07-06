@@ -324,9 +324,12 @@ Energy density per unit of cultivated land is not a single fixed multiplier — 
 
 | Crop archetype | Energy density | Favored zone | Real-world analogy |
 |---|---|---|---|
-| Grain | 1.4× | Temperate | Wheat/rice/maize — dominant staples precisely because of superior caloric yield density |
-| Legume | 1.15× | Tropical/temperate | Secondary but versatile everywhere |
-| Tuber | 1.0× | Tropical | Bulkier, lower density per kg but reliable yield |
+| Wheat | 1.4× | Temperate | The historically dominant temperate staple, precisely because of superior caloric yield density |
+| Rice | 1.3× | Temperate (some tropical) | Water-intensive but very high-yield where irrigation exists |
+| Soybean | 1.15× | Temperate (some tropical) | Secondary legume staple, versatile but lower density than the grains |
+| Fruit | 1.0× | Tropical | Perennial tree/vine crops — reliable yield without needing seasonal replanting |
+| Sweet potato | 0.55× | Cold (rare) | A late, low-yield crop only reachable once cold-zone farming suitability (already near-zero) is overcome — deliberately marginal, not a substitute for pastoralism there |
+| Corn | 0.6× | Cold (rare) | Same rationale as sweet potato — a rare, low-density cold-zone crop rather than a staple |
 
 | Livestock archetype | Energy density | Favored zone | Real-world analogy |
 |---|---|---|---|
