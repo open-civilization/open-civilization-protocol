@@ -929,6 +929,73 @@ def _weak_ties_compare(history, state):
     return None
 
 
+def _self_organization_compare(history, state):
+    if len(history) < 2:
+        return None
+
+    initial_pop = history[0]['pop']
+    final_pop = state['residents']
+    final_population = len(final_pop)
+
+    avg_total_births = mean([h['total_births'] for h in history])
+    avg_total_deaths = mean([h['total_deaths'] for h in history])
+
+    # Self-organization predicts populations should stabilize rather than collapse
+    if final_population == 0 and (avg_total_births > avg_total_deaths):
+        return TheoryFinding(
+            population_dynamics='self_organization',
+            evidence={
+                'initial_population': initial_pop,
+                'final_population': final_population,
+                'avg_total_births': avg_total_births,
+                'avg_total_deaths': avg_total_deaths
+            },
+            prediction='Population should have established a stable structure rather than collapsing to extinction.'
+        )
+
+    return None
+
+
+def _collective_action_problem_compare(history, state):
+    if not history:
+        return None
+
+    total_population = sum(h['pop'] for h in history)
+    last_population = history[-1]['pop']
+    avg_bonds = sum(r['bonds'] for r in state['residents']) / len(state['residents']) if state['residents'] else 0
+
+    # Check for signs of coordination failure
+    if last_population < total_population and avg_bonds < 1:
+        return TheoryFinding(
+            domain='sociology',
+            theory_name='The Collective Action Problem',
+            citation='Olson, M. (1965). The Logic of Collective Action.',
+            prediction='The theory predicts that individuals within a group will struggle to coordinate and cooperate in a way that maximizes the collective benefit due to competing individual interests, leading to resource depletion and possibly extinction.',
+            function_name='_collective_action_problem_compare',
+            function_code=_collective_action_problem_compare.__code__.
+            co_code
+        )
+
+    return None
+
+
+def _group_cohesion_compare(history, state):
+    if not history or state['residents'] == []:
+        return None
+    cohort_count = len(state['residents'])
+    bond_counts = [resident['bonds'] for resident in state['residents']]
+    avg_bond_count = mean(bond_counts) if bond_counts else 0
+    cohesion_score = avg_bond_count / cohort_count if cohort_count > 0 else 0
+    if cohesion_score < 0.5:
+        return TheoryFinding(
+            theory='Group Cohesion Theory',
+            description='Low average bond count indicates poor group cohesion, leading to increased risks of extinction.',
+            evidence={'avg_cohesion_score': cohesion_score},
+            gap_behavior='The observed population collapsed to extinction with insufficient social bonds, contradicting predictions of higher survival with greater cohesion.'
+        )
+    return None
+
+
 LENSES: list[TheoryLens] = [
     TheoryLens("Malthusian population dynamics", "Malthus (1798)",
                "Population oscillates around carrying capacity under growth/check dynamics.",
@@ -1011,6 +1078,15 @@ LENSES: list[TheoryLens] = [
     TheoryLens("Weak Ties Theory", "Granovetter, M. S. (1973). The Strength of Weak Ties.",
                "The theory predicts that a society with a high number of weak social ties will exhibit greater resilience and adaptability, which can prevent extinction even in the face of adverse conditions.",
                _weak_ties_compare),
+    TheoryLens("Self-Organization Theory", "Camazine, S., et al., 'Self-Organization in Biological Systems', 2003",
+               "The theory predicts that under certain conditions, decentralized interactions among agents can lead to the emergence of organized structures, including robust populations that stabilize around a carrying capacity.",
+               _self_organization_compare),
+    TheoryLens("The Collective Action Problem", "Olson, M. (1965). The Logic of Collective Action.",
+               "The theory predicts that individuals within a group will struggle to coordinate and cooperate in a way that maximizes the collective benefit due to competing individual interests, leading to resource depletion and possibly extinction.",
+               _collective_action_problem_compare),
+    TheoryLens("Group Cohesion Theory", "Leonard B. Borkowski, 'Group Cohesion: Theoretical and Practical Perspectives', 1983",
+               "Greater cohesion among residents would lead to more successful survival outcomes, while lack of cohesion correlates with higher extinction rates.",
+               _group_cohesion_compare),
 # AUTO-DISCOVERED LENSES REGISTERED BELOW THIS LINE — appended by discovery.py
 ]
 
