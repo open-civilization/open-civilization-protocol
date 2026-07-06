@@ -801,7 +801,7 @@ def decide(r, grid, residents, tick, pressure=0.0):
             return ('interact', None, None, t.id) if r.age > 5 and random.random() < (1.0 / (1 + r.traits.sociability * 2)) * 1.5 or random.random() < 0.1 else ('rest', None, None, None)
 
     # FORAGE if not full
-    if r.energy < 2400 and here.biomass > 10 and random.random() < (1.0 - (self._pressure - 1.0) * 0.2):
+    if r.energy < 2400 and here.biomass > 10 and random.random() < (1.0 - (pressure - 1.0) * 0.2):
         return ('forage', None, None, None)
 
     # EXPLORE
