@@ -27,6 +27,11 @@ MAX_ENERGY = 3000.0             # full caloric reserve — "well-fed" baseline
 REPRODUCTION_ENERGY = 1800.0    # reserve required (55% of max) before reproduction is attempted
 REPRODUCTION_COST = 750.0       # reserve spent per parent per birth
 OFFSPRING_ENERGY = 600.0        # newborn starting reserve
+# Migration (see the MIGRATE (general) block in decide()) is a costly last resort, not a
+# default response to hunger — it requires a real energy surplus to spend on the journey.
+MIGRATION_ENERGY_SURPLUS_MIN = 1800.0  # 60% of max; deliberately at REPRODUCTION_ENERGY's level —
+                                        # migrating is something a comfortable resident does, not a starving one
+MIGRATION_CHANCE = 0.3                 # per qualifying tick, once local competition has already failed
 BASELINE_ENERGY_COST = 60.0     # baseline daily metabolic burn before season/technology modifiers
 PERCEPTION_BASE_RADIUS = 20
 MAX_HEALTH = 100.0
@@ -786,17 +791,23 @@ def decide(r, grid, residents, tick, pressure=0.0):
             target_y = min(r.y + 3, 79)
             return ('move', r.x, target_y, None)
 
-    # MIGRATE (general): under sustained high population pressure — regardless of season
-    # or zone — spread out toward less-crowded, better-resourced ground rather than
-    # compete for the same depleted local patch. This is expansion into unclaimed
-    # territory as a release valve, not a scripted settlement mechanic: the resident
-    # simply moves toward the best food it can see within a wider search radius.
-    if pressure > 1.3 and r.energy < 1650 and random.random() < 0.40:
-        wide_cells = _nearby_cells(r.x, r.y, radius + 4, grid)
-        far_candidates = [(c, d) for c, d in wide_cells if d > radius and c.biomass > 15]
-        if far_candidates:
-            target_cell = max(far_candidates, key=lambda x: x[0].biomass)[0]
-            return _step_toward(r.x, r.y, target_cell.x, target_cell.y, grid)
+    # MIGRATE (general): the last resort in the Malthusian release-valve chain — population
+    # pressure has already made local resource competition (raiding, above) the first
+    # response; only when there is no one nearby worth raiding AND the immediate area is
+    # genuinely scarce does relocating make sense. Migration itself costs real energy every
+    # step (_do_move), so it requires a surplus to spend on the journey, not triggering
+    # exactly when already energy-poor (which previously sent residents wandering while
+    # running on empty, and — combined with this branch outranking SOCIAL below — starved
+    # bond formation almost entirely under the sustained pressure this simulation settles into).
+    if pressure > 1.3 and r.energy > MIGRATION_ENERGY_SURPLUS_MIN:
+        local_scarce = here.biomass < 10 and here.leftover < 5
+        raidable_nearby = any(d <= 1 and res.energy > 900 for res, d in near_res)
+        if local_scarce and not raidable_nearby and random.random() < MIGRATION_CHANCE:
+            wide_cells = _nearby_cells(r.x, r.y, radius + 4, grid)
+            far_candidates = [(c, d) for c, d in wide_cells if d > radius and c.biomass > 15]
+            if far_candidates:
+                target_cell = max(far_candidates, key=lambda x: x[0].biomass)[0]
+                return _step_toward(r.x, r.y, target_cell.x, target_cell.y, grid)
 
     # CRITICAL / HUNGRY: find food
     if r.energy < 1200:
@@ -807,8 +818,17 @@ def decide(r, grid, residents, tick, pressure=0.0):
             return _step_toward(r.x, r.y, best.x, best.y, grid)
         return _random_move(r, grid)
 
-    # INJURED: rest
-    if r.health < 50 and r.energy > 600:
+    # INJURED: rest heals `2.5 * endurance` health/tick, but sustained population pressure
+    # drains health continuously via malnutrition (below) — a resident with below-average
+    # endurance can lose that race indefinitely once health dips under 50, getting stuck
+    # resting forever under exactly the pressure range (>1.0) this simulation settles into,
+    # never reaching REPRODUCE/SOCIAL below. Same "well-intentioned priority becomes a trap
+    # under steady-state conditions" issue MIGRATE (general) had above. Below a hard floor
+    # (25) resting is the only real option — genuinely incapacitated; between 25-50 it's a
+    # strong preference, not an absolute one, leaving real room for other needs.
+    if r.health < 25 and r.energy > 600:
+        return ('rest', None, None, None)
+    if r.health < 50 and r.energy > 600 and random.random() < 0.5:
         return ('rest', None, None, None)
 
     # REPRODUCE — fertility drops under Malthusian pressure; additionally, chronic malnutrition
