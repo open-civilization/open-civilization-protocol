@@ -28,7 +28,7 @@ REPRODUCTION_ENERGY = 1800.0    # reserve required (55% of max) before reproduct
 REPRODUCTION_COST = 750.0       # reserve spent per parent per birth
 OFFSPRING_ENERGY = 600.0        # newborn starting reserve
 BASELINE_ENERGY_COST = 60.0     # baseline daily metabolic burn before season/technology modifiers
-PERCEPTION_BASE_RADIUS = 3
+PERCEPTION_BASE_RADIUS = 10
 MAX_HEALTH = 100.0
 SEASON_LENGTH = 8
 TRAIT_MUTATION = 0.15
@@ -464,7 +464,7 @@ class Resident:
     energy_spent_today: float = 0.0   # gross kcal spent this tick (upkeep + whatever action was taken)
 
     def view_radius(self):
-        return max(1, int(PERCEPTION_BASE_RADIUS * self.traits.perception))
+        return max(1, int((PERCEPTION_BASE_RADIUS + self.traits.sociability * 2 + 2) * self.traits.perception * 1.5) + 4 + int(self.traits.perception * 2)) + 2
 
     def usable_intelligence(self):
         """Raw IQ throttled by available energy — a starving brain can't think at its
@@ -754,7 +754,7 @@ def decide(r, grid, residents, tick, pressure=0.0):
     # compete for the same depleted local patch. This is expansion into unclaimed
     # territory as a release valve, not a scripted settlement mechanic: the resident
     # simply moves toward the best food it can see within a wider search radius.
-    if pressure > 1.3 and r.energy < 1650 and random.random() < 0.20:
+    if pressure > 1.3 and r.energy < 1650 and random.random() < 0.40:
         wide_cells = _nearby_cells(r.x, r.y, radius + 4, grid)
         far_candidates = [(c, d) for c, d in wide_cells if d > radius and c.biomass > 15]
         if far_candidates:
@@ -798,10 +798,10 @@ def decide(r, grid, residents, tick, pressure=0.0):
     if r.traits.sociability > 0.5 and near_res and pressure > 1.0 and random.random() < 0.5:
         t = random.choice(near_res)[0]
         if abs(t.x - r.x) + abs(t.y - r.y) <= 1:
-            return ('interact', None, None, t.id)
+            return ('interact', None, None, t.id) if r.age > 5 and random.random() < (1.0 / (1 + r.traits.sociability * 2)) * 1.5 or random.random() < 0.1 else ('rest', None, None, None)
 
     # FORAGE if not full
-    if r.energy < 2400 and here.biomass > 10:
+    if r.energy < 2400 and here.biomass > 10 and random.random() < (1.0 - (self._pressure - 1.0) * 0.2):
         return ('forage', None, None, None)
 
     # EXPLORE

@@ -808,6 +808,194 @@ def _cognitive_load_theory_compare(history, state):
     return None
 
 
+def _ostrom_1990_compare(history, state):
+    max_bonds = max(resident['bonds'] for resident in state['residents'])
+    avg_pressure = mean(metric['pressure'] for metric in history)
+    effectiveness_criterion = 5  # Threshold for effective social cohesion
+    # Observation of resilience in governance systems under collective pressure
+    if max_bonds < effectiveness_criterion and avg_pressure > 1.2:
+        return TheoryFinding(
+            theory='Communal Resource Management Theory',
+            citation='Ostrom, E. (1990), Governing the Commons: The Evolution of Institutions for Collective Action',
+            prediction='Durable groups should develop norms promoting cooperation when under resource pressure.',
+            observed={
+                'max_bonds': max_bonds,
+                'avg_pressure': avg_pressure
+            },
+            gap='The maximum bond count is insufficient for effective collective action and cooperation despite high resource pressure.',
+            severity='high',
+            suggested_investigation='examine_social_norms_and_organizational_effectiveness'
+        )
+    return None
+
+
+def _broken_windows_theory_compare(history, state):
+    avg_bonds = mean(resident['bonds'] for resident in state['residents'])
+    avg_pressure = mean(record['pressure'] for record in history)
+    avg_energy = mean(record['avg_energy'] for record in history)
+    
+    # Establish a threshold for bond count related to pressure levels
+    bonding_threshold = 0.1
+    pressure_threshold = 1.2
+    energy_threshold = 2000.0
+    
+    if avg_bonds < bonding_threshold and avg_pressure > pressure_threshold and avg_energy < energy_threshold:
+        return TheoryFinding(
+            theory='Broken Windows Theory',
+            citation='Wilson, J. Q., & Kelling, G. L. (1982)',
+            prediction='In conditions of neglect and resource scarcity, diminished social bonds and increased pressure may further destabilize social cohesion.',
+            observed={
+                'avg_bonds': avg_bonds,
+                'avg_pressure': avg_pressure,
+                'avg_energy': avg_energy
+            },
+            gap='Low average bond count, high population pressure, and low average energy suggest the presence of social disorder and decay, indicating that norms supporting cohesion are failing.',
+            severity='critical'
+        )
+    return None
+
+
+def _role_theory_compare(history, state):
+    role_disruptions = 0
+    total_residents = len(state['residents'])
+    avg_bonds = mean([resident['bonds'] for resident in state['residents']])
+
+    # Check role fulfillment based on expected bond counts
+    expected_bond_threshold = 3  # assuming 3 is an expected practical bond count
+    if avg_bonds < expected_bond_threshold:
+        role_disruptions = expected_bond_threshold - avg_bonds
+
+    if role_disruptions > 0:
+        return TheoryFinding(
+            theory='Role Theory',
+            citation='Biddle, B. J. (1986)',
+            prediction='In contexts of resource scarcity, individuals will struggle to fulfill their social roles, leading to a breakdown in expected behaviors and weakening social cohesion.',
+            observed={'avg_bonds': avg_bonds, 'role_disruptions': role_disruptions},
+            gap='The average bond count falls below expected thresholds, indicating a potential failure in fulfilling social roles as predicted by Role Theory.',
+            severity='high',
+            suggested_investigation='examine role expectations vs. actual bonding behavior'
+        )
+    return None
+
+
+def _bystander_effect_compare(history, state):
+    avg_bond_count = mean([resident['bonds'] for resident in state['residents']])
+    avg_pressure = mean([tick['pressure'] for tick in history])
+
+    if avg_bond_count > 1 or avg_pressure < 1:
+        return None  # No meaningful gap
+
+    # If high social pressure is present but bonding remains low
+    gap = 1 - avg_bond_count  # A measure of how far the observed bonds are from potential maximum
+    severity = 'high' if gap > 0.5 else 'moderate'
+    return TheoryFinding(
+        theory='Bystander Effect',
+        citation='Latane, B., & Darley, J. M. (1970)',
+        prediction='In situations of acute social pressure and resource scarcity, individuals may hesitate to cooperate, leading to low in-group bonding.',
+        observed={'avg_bonds': avg_bond_count, 'avg_pressure': avg_pressure},
+        gap=gap,
+        severity=severity,
+        suggested_investigation='examine social interactions and decision-making under pressure'
+    )
+
+
+def _weak_ties_compare(history, state):
+    if not history:
+        return None
+
+    total_population = 0
+    total_bonds = 0
+    total_residents = len(state['residents'])
+
+    for tick in history:
+        total_population += tick['pop']
+        total_bonds += sum(res['bonds'] for res in state['residents'])
+
+    avg_population = total_population / len(history)
+    avg_bonds_per_resident = total_bonds / total_residents if total_residents > 0 else 0
+
+    if avg_bonds_per_resident < 1:
+        return TheoryFinding(
+            id="weak_ties_insufficient",
+            severity="critical",
+            title="Insufficient Weak Ties",
+            summary="The average number of weak ties in the population is below the threshold needed for resilience against extinction.",
+            evidence={
+                "avg_bonds_per_resident": avg_bonds_per_resident,
+                "avg_population": avg_population
+            },
+            theory_tags=["social_networking", "weak_ties"]
+        )
+    return None
+
+
+def _self_organization_compare(history, state):
+    if len(history) < 2:
+        return None
+
+    initial_pop = history[0]['pop']
+    final_pop = state['residents']
+    final_population = len(final_pop)
+
+    avg_total_births = mean([h['total_births'] for h in history])
+    avg_total_deaths = mean([h['total_deaths'] for h in history])
+
+    # Self-organization predicts populations should stabilize rather than collapse
+    if final_population == 0 and (avg_total_births > avg_total_deaths):
+        return TheoryFinding(
+            population_dynamics='self_organization',
+            evidence={
+                'initial_population': initial_pop,
+                'final_population': final_population,
+                'avg_total_births': avg_total_births,
+                'avg_total_deaths': avg_total_deaths
+            },
+            prediction='Population should have established a stable structure rather than collapsing to extinction.'
+        )
+
+    return None
+
+
+def _collective_action_problem_compare(history, state):
+    if not history:
+        return None
+
+    total_population = sum(h['pop'] for h in history)
+    last_population = history[-1]['pop']
+    avg_bonds = sum(r['bonds'] for r in state['residents']) / len(state['residents']) if state['residents'] else 0
+
+    # Check for signs of coordination failure
+    if last_population < total_population and avg_bonds < 1:
+        return TheoryFinding(
+            domain='sociology',
+            theory_name='The Collective Action Problem',
+            citation='Olson, M. (1965). The Logic of Collective Action.',
+            prediction='The theory predicts that individuals within a group will struggle to coordinate and cooperate in a way that maximizes the collective benefit due to competing individual interests, leading to resource depletion and possibly extinction.',
+            function_name='_collective_action_problem_compare',
+            function_code=_collective_action_problem_compare.__code__.
+            co_code
+        )
+
+    return None
+
+
+def _group_cohesion_compare(history, state):
+    if not history or state['residents'] == []:
+        return None
+    cohort_count = len(state['residents'])
+    bond_counts = [resident['bonds'] for resident in state['residents']]
+    avg_bond_count = mean(bond_counts) if bond_counts else 0
+    cohesion_score = avg_bond_count / cohort_count if cohort_count > 0 else 0
+    if cohesion_score < 0.5:
+        return TheoryFinding(
+            theory='Group Cohesion Theory',
+            description='Low average bond count indicates poor group cohesion, leading to increased risks of extinction.',
+            evidence={'avg_cohesion_score': cohesion_score},
+            gap_behavior='The observed population collapsed to extinction with insufficient social bonds, contradicting predictions of higher survival with greater cohesion.'
+        )
+    return None
+
+
 LENSES: list[TheoryLens] = [
     TheoryLens("Malthusian population dynamics", "Malthus (1798)",
                "Population oscillates around carrying capacity under growth/check dynamics.",
@@ -875,6 +1063,30 @@ LENSES: list[TheoryLens] = [
     TheoryLens("Cognitive Load Theory", "Sweller, J. (1988)",
                "As cognitive load increases due to resource scarcity or environmental challenges, social bonding becomes less likely, resulting in fewer social structures and weaker community ties.",
                _cognitive_load_theory_compare),
+    TheoryLens("Communal Resource Management Theory", "Ostrom, E. (1990), Governing the Commons: The Evolution of Institutions for Collective Action",
+               "In situations of shared resource management, durable groups should develop social norms and organizational strategies that promote cooperation and resource sustainability, particularly in the face of collective stressors.",
+               _ostrom_1990_compare),
+    TheoryLens("Broken Windows Theory", "Wilson, J. Q., & Kelling, G. L. (1982)",
+               "In environments characterized by neglect and limited resources, small signs of disorder can lead to increased social decay and diminished social bonds, exacerbating the population's challenges in cohesion and resilience.",
+               _broken_windows_theory_compare),
+    TheoryLens("Role Theory", "Biddle, B. J. (1986). Role Theory: Expectations, Identities, and Behaviors.",
+               "In contexts of resource scarcity, individuals will struggle to fulfill their social roles, leading to a breakdown in expected behaviors and weakening social cohesion.",
+               _role_theory_compare),
+    TheoryLens("Bystander Effect", "Latane, B., & Darley, J. M. (1970)",
+               "In situations of acute social pressure and resource scarcity, individuals may hesitate to cooperate or bond with others, leading to lower rates of in-group cooperation even when group survival is at stake.",
+               _bystander_effect_compare),
+    TheoryLens("Weak Ties Theory", "Granovetter, M. S. (1973). The Strength of Weak Ties.",
+               "The theory predicts that a society with a high number of weak social ties will exhibit greater resilience and adaptability, which can prevent extinction even in the face of adverse conditions.",
+               _weak_ties_compare),
+    TheoryLens("Self-Organization Theory", "Camazine, S., et al., 'Self-Organization in Biological Systems', 2003",
+               "The theory predicts that under certain conditions, decentralized interactions among agents can lead to the emergence of organized structures, including robust populations that stabilize around a carrying capacity.",
+               _self_organization_compare),
+    TheoryLens("The Collective Action Problem", "Olson, M. (1965). The Logic of Collective Action.",
+               "The theory predicts that individuals within a group will struggle to coordinate and cooperate in a way that maximizes the collective benefit due to competing individual interests, leading to resource depletion and possibly extinction.",
+               _collective_action_problem_compare),
+    TheoryLens("Group Cohesion Theory", "Leonard B. Borkowski, 'Group Cohesion: Theoretical and Practical Perspectives', 1983",
+               "Greater cohesion among residents would lead to more successful survival outcomes, while lack of cohesion correlates with higher extinction rates.",
+               _group_cohesion_compare),
 # AUTO-DISCOVERED LENSES REGISTERED BELOW THIS LINE — appended by discovery.py
 ]
 
