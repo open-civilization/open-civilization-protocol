@@ -336,6 +336,24 @@ Energy density per unit of cultivated land is not a single fixed multiplier — 
 | Grazer | 1.1× | Cold | Cattle/sheep-type herding on open range |
 | Browser | 0.95× | Tropical | Goat-type mixed browsing |
 
+**Mineral resources** are a separate, non-food resource class — physical goods to trade or have
+raided rather than an energy source. Cold-zone-dominant real geology (coal seams, iron-bearing
+rock, and oil deposits concentrate in specific rock formations, not arable land), discovered
+through the identical Experiment pathway as crop/livestock domestication (a new `mining`
+knowledge type, gated by mountain/desert terrain suitability):
+
+| Mineral archetype | Favored zone | Real-world analogy |
+|---|---|---|
+| Coal | Cold (some temperate) | The dominant pre-industrial mineral fuel, concentrated in specific cold/mountainous geology |
+| Iron ore | Cold (some temperate) | Base metal for tools and, later, industrial machinery |
+| Oil | Cold (some temperate) | Rarer, later-relevant extractive resource |
+
+A resident who discovers `crop_cultivation` and produces more than they can personally consume
+(surplus beyond the caloric energy cap) converts the excess into a held stockpile of their
+specific crop rather than wasting it; a `mining` holder accumulates their mineral type per tick
+worked. Held resources decay slowly (same entropy principle as `leftover` food) so stockpiles
+don't grow unbounded. See RFC-0007 for how these named resources drive trade and raiding.
+
 **2. Domestication is not guaranteed to succeed.** A "wild variant found" event (the existing discovery roll) only represents *trying* a promising plant or animal — most such attempts fail to become a stable, transmittable domesticate (of the world's ~200,000 plant species, only a few hundred were ever actually domesticated). A second, independent roll (45% chance) determines whether the attempt actually takes; a failure leaves no trace, and the underlying discovery roll keeps trying on subsequent ticks.
 
 **3. Further tiers, each gated on a real prerequisite:**
