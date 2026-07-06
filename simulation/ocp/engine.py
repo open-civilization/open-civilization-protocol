@@ -28,7 +28,7 @@ REPRODUCTION_ENERGY = 1800.0    # reserve required (55% of max) before reproduct
 REPRODUCTION_COST = 750.0       # reserve spent per parent per birth
 OFFSPRING_ENERGY = 600.0        # newborn starting reserve
 BASELINE_ENERGY_COST = 60.0     # baseline daily metabolic burn before season/technology modifiers
-PERCEPTION_BASE_RADIUS = 15
+PERCEPTION_BASE_RADIUS = 20
 MAX_HEALTH = 100.0
 SEASON_LENGTH = 8
 TRAIT_MUTATION = 0.15
@@ -464,7 +464,7 @@ class Resident:
     energy_spent_today: float = 0.0   # gross kcal spent this tick (upkeep + whatever action was taken)
 
     def view_radius(self):
-        return max(1, int((PERCEPTION_BASE_RADIUS + self.traits.sociability * 4 + 2) * self.traits.perception * 1.5) + 4 + int(self.traits.perception * 2)) + 2
+        return max(1, int((PERCEPTION_BASE_RADIUS + self.traits.sociability * 6 + 2) * self.traits.perception * 1.5) + 4 + int(self.traits.perception * 2)) + 2
 
     def usable_intelligence(self):
         """Raw IQ throttled by available energy — a starving brain can't think at its
@@ -684,7 +684,7 @@ def _step_toward(rx, ry, tx, ty, grid):
 
 
 def decide(r, grid, residents, tick, pressure=0.0):
-    radius = r.view_radius()
+    radius = r.view_radius() + int(r.traits.sociability * 2)
     cells = _nearby_cells(r.x, r.y, radius, grid)
     near_res = _nearby_residents(r.x, r.y, radius, residents)
     here = grid[r.y][r.x]
