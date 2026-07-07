@@ -32,6 +32,9 @@ OFFSPRING_ENERGY = 600.0        # newborn starting reserve
 # block) — this is what makes population structure into real kin-based groups.
 REPRODUCTION_BOND_THRESHOLD = 0.1   # matches LANGUAGE_BOND_THRESHOLD's scale: a real if modest relationship
 STRANGER_REPRODUCTION_CHANCE = 0.15 # reproducing with a totally unbonded stranger still happens sometimes
+# Sex-based division of labor (see _do_forage) — females retain a real, if reduced, foraging
+# contribution rather than zero; see the note at the gain calculation for why zero failed.
+FEMALE_FORAGE_MULT = 0.5
 # Migration (see the MIGRATE (general) block in decide()) is a costly last resort, not a
 # default response to hunger — it requires a real energy surplus to spend on the journey.
 MIGRATION_ENERGY_SURPLUS_MIN = 1800.0  # 60% of max; deliberately at REPRODUCTION_ENERGY's level —
@@ -513,6 +516,12 @@ class Resident:
     resources: dict = field(default_factory=lambda: {})  # resource_name (crop/mineral archetype) -> held quantity;
                                                             # physical goods distinct from energy/knowledge, tradeable
                                                             # or raidable (see CROP_ARCHETYPES, MINERAL_ARCHETYPES)
+    sex: str = 'female'  # 'male' | 'female'; categorical, not blended like Traits — always set
+                          # explicitly at spawn (see _spawn), this default is never actually used
+    spouse_id: Optional[int] = None  # exclusive pair-bond, formed at first shared reproduction
+                                       # (see _do_reproduce) — concentrates provisioning on one
+                                       # partner rather than diffusing across every bonded female
+                                       # (Lovejoy 1981 provisioning model of pair-bond evolution)
     malnutrition_debt: float = 0.0  # cumulative nutritional stress; drives aging independent of raw age
     energy_intake_today: float = 0.0  # gross kcal gained this tick (foraging, harvest, being fed)
     energy_spent_today: float = 0.0   # gross kcal spent this tick (upkeep + whatever action was taken)
@@ -685,6 +694,7 @@ def _spawn(rid, grid, tick, parent=None, partner=None):
 
     child = Resident(rid, _rand_name(), x, y, 0, nrg, MAX_HEALTH, traits,
                     True, pid, gen, [], {}, tick)
+    child.sex = random.choice(('male', 'female'))  # independent 50/50 each birth, not inherited
     if parent:
         # Parent-child (and, if present, partner) bonds are inherent from birth — a family
         # relationship doesn't need to be "discovered" through a chance social encounter the
@@ -872,14 +882,21 @@ def decide(r, grid, residents, tick, pressure=0.0):
             # Group Behavior: groups emerge from repeated interaction + kinship, not proximity
             # alone). Not an absolute gate — reproducing with a completely unbonded stranger
             # still happens sometimes (STRANGER_REPRODUCTION_CHANCE), real exogamy exists too.
+            spouse_nearby = [(res, d) for res, d in near_res
+                              if r.spouse_id is not None and res.id == r.spouse_id
+                              and res.energy > REPRODUCTION_ENERGY and res.age > REPRODUCTION_AGE]
             bonded = [(res, d) for res, d in near_res
                       if res.energy > REPRODUCTION_ENERGY and res.age > REPRODUCTION_AGE
+                      and res.sex != r.sex
                       and res.id in r.bonds and r.bonds[res.id].quality > REPRODUCTION_BOND_THRESHOLD]
-            if bonded:
+            if spouse_nearby:
+                partners = spouse_nearby
+            elif bonded:
                 partners = bonded
             elif random.random() < STRANGER_REPRODUCTION_CHANCE:
                 partners = [(res, d) for res, d in near_res
-                            if res.energy > REPRODUCTION_ENERGY and res.age > REPRODUCTION_AGE]
+                            if res.energy > REPRODUCTION_ENERGY and res.age > REPRODUCTION_AGE
+                            and res.sex != r.sex]
             else:
                 partners = []
             if partners:
@@ -887,6 +904,31 @@ def decide(r, grid, residents, tick, pressure=0.0):
                 if abs(p.x - r.x) + abs(p.y - r.y) <= 1:
                     return ('reproduce', None, None, p.id)
                 return _step_toward(r.x, r.y, p.x, p.y, grid)
+
+    # MATE PROVISIONING — a male with real surplus checks on a bonded female partner
+    # unconditionally (not gated on population pressure like SOCIAL below), since she
+    # produces no personal energy from foraging at all (see _do_forage) and providing for
+    # a mate/family is a base survival behavior, not a luxury that only shows up once the
+    # environment is stressed. Without this separate, higher-priority path, provisioning
+    # would depend on SOCIAL's `pressure > 1.0` gate, which early-game (population still
+    # below carrying capacity) can leave unmet for a long stretch — exactly when founding
+    # females are most exposed, having no accumulated reserve yet.
+    if r.sex == 'male' and r.energy > 1800:
+        if r.spouse_id is not None:
+            # Married: provisioning concentrates on the actual spouse, not diffused across
+            # every bonded female — this is the whole point of the exclusive pair-bond.
+            needy_mates = [(res, d) for res, d in near_res
+                           if res.id == r.spouse_id and res.energy < 2200]
+        else:
+            needy_mates = [(res, d) for res, d in near_res
+                           if res.sex == 'female' and res.id in r.bonds
+                           and r.bonds[res.id].quality > REPRODUCTION_BOND_THRESHOLD
+                           and res.energy < 2200]
+        if needy_mates:
+            mate = min(needy_mates, key=lambda x: x[1])[0]
+            if abs(mate.x - r.x) + abs(mate.y - r.y) <= 1:
+                return ('interact', None, None, mate.id)
+            return _step_toward(r.x, r.y, mate.x, mate.y, grid)
 
     # SOCIAL — prefer approaching someone already familiar (bonded or kin) over a genuine
     # stranger, mirroring real intergroup wariness: repeated trust builds within an existing
@@ -1089,7 +1131,16 @@ def _do_forage(r, grid, tick, residents=None):
             conversion += r.skills.get('crop_cultivation', 0) / 100.0 * farm_suit * 20.0
         if graze_suit > 0 and 'animal_husbandry' in r.known_knowledge:
             conversion += r.skills.get('animal_husbandry', 0) / 100.0 * graze_suit * 20.0
-        gain = harvest * conversion
+        # Sex-based division of labor: reproduction/childcare responsibilities reduce, but
+        # do not zero out, a female's foraging output — real hunter-gatherer ethnography
+        # (e.g. Hadza gathering studies) shows women's gathering reliably contributes a
+        # large share of calories, just typically less than men's higher-risk/higher-return
+        # foraging. A hard zero was tried first and caused total economic collapse (halving
+        # aggregate production while consumption stayed the same, for both sexes) — this
+        # keeps genuine asymmetry and real dependency on mate provisioning (_do_interact)
+        # without making the population's energy math structurally unsolvable.
+        sex_mult = 1.0 if r.sex == 'male' else FEMALE_FORAGE_MULT
+        gain = harvest * conversion * sex_mult
         pre_cap_energy = r.energy + gain - effort
         r.energy = min(MAX_ENERGY, pre_cap_energy)
         r.food_total += harvest
@@ -1217,6 +1268,22 @@ def _do_interact(r, target_id, residents, tick, pressure=0.0):
     r.bonds[target.id].interactions += 1
     target.bonds[r.id].interactions += 1
 
+    # Mate provisioning — since females produce no personal energy from foraging (see
+    # _do_forage), a bonded male reliably shares surplus with her rather than this depending
+    # on the generic share below (which is gated on sociability and only fires once she's
+    # already critical) — real pair-bonded provisioning is closer to a biological imperative
+    # than a personality trait, and needs to be proactive, not just emergency triage.
+    if (r.sex == 'male' and target.sex == 'female'
+            and target.id in r.bonds and r.bonds[target.id].quality > REPRODUCTION_BOND_THRESHOLD
+            and r.energy > 1800 and target.energy < 2200):
+        share = min(500, r.energy - 1500)
+        r.energy -= share
+        target.energy = min(MAX_ENERGY, target.energy + share * 0.9)
+        r.bonds[target.id].quality = min(1.0, r.bonds[target.id].quality + 0.15)
+        target.bonds[r.id].quality = min(1.0, target.bonds[r.id].quality + 0.2)
+        lang_msg = _maybe_discover_language(r, target, tick, pressure, cooperative=True)
+        return lang_msg or f'{r.name} provisioned {target.name}'
+
     # Share food if one is hungry — this is the highest-signal cooperative act available:
     # a real payoff exchanged between two individuals, not just proximity or small talk.
     if r.energy > 1800 and target.energy < 900 and r.traits.sociability > 0.4:
@@ -1324,6 +1391,13 @@ def _do_reproduce(r, target_id, residents, grid, tick, next_id):
     r.children += 1
     target.children += 1
 
+    # First shared reproduction establishes an exclusive pair-bond (if neither already has
+    # one) — concentrates future provisioning/reproduction on this one partner rather than
+    # diffusing across every bonded relationship (see decide()'s MATE PROVISIONING/REPRODUCE).
+    if r.spouse_id is None and target.spouse_id is None:
+        r.spouse_id = target.id
+        target.spouse_id = r.id
+
     next_id += 1
     child = _spawn(next_id, grid, tick, parent=r, partner=target)
     residents.append(child)
@@ -1401,6 +1475,19 @@ class Simulation:
         for _ in range(INITIAL_POPULATION):
             self._next_id += 1
             self.residents.append(_spawn(self._next_id, self.grid, 0))
+
+        # Founding couples: the initial population has no parents to inherit birth-bonds
+        # from (see _spawn), so without this, seed-generation females have zero path to
+        # mate provisioning until a bond happens to form through ordinary interaction —
+        # in practice too slow, since they produce no personal energy from foraging at all
+        # (see _do_forage) and were observed starving before any bond could form. Real
+        # founding populations of a settlement already include paired mates, not
+        # unattached strangers, so pair up opposite-sex members with an initial bond.
+        males = [r for r in self.residents if r.sex == 'male']
+        females = [r for r in self.residents if r.sex == 'female']
+        for m, f in zip(males, females):
+            m.bonds[f.id] = Bond(f.id, 0.3, 0)
+            f.bonds[m.id] = Bond(m.id, 0.3, 0)
 
     def tick(self):
         with self.lock:
@@ -1702,6 +1789,13 @@ class Simulation:
                 r.death_tick = tick
                 r.death_cause = cause
                 self.total_deaths += 1
+                if r.spouse_id is not None:
+                    # Widowhood — free the surviving spouse to remarry rather than staying
+                    # permanently bonded to a dead partner (see _do_reproduce's pair-bond gate).
+                    for other in self.residents:
+                        if other.id == r.spouse_id:
+                            other.spouse_id = None
+                            break
                 evts.append({'tick': tick, 'type': 'death',
                              'text': f'{r.name} died ({cause}, age {r.age}, gen {r.generation})',
                              'x': r.x, 'y': r.y})
@@ -1845,12 +1939,22 @@ class Simulation:
             for res_name, qty in r.resources.items():
                 resource_totals[res_name] = resource_totals.get(res_name, 0.0) + qty
 
+        # Sex-split energy — females produce no personal calories (see _do_forage) and
+        # depend on mate provisioning (_do_interact), so this is the key health check for
+        # whether that provisioning is actually keeping up, not just an average.
+        males = [r for r in living if r.sex == 'male']
+        females = [r for r in living if r.sex == 'female']
+        avg_energy_male = round(sum(r.energy for r in males) / max(1, len(males)), 1)
+        avg_energy_female = round(sum(r.energy for r in females) / max(1, len(females)), 1)
+
         metrics = {
             'tick': tick,
             'season': season,
             'year': tick // (SEASON_LENGTH * 4),
             'pop': n,
             'avg_energy': round(sum(r.energy for r in living) / max(1, n), 1),
+            'avg_energy_male': avg_energy_male,
+            'avg_energy_female': avg_energy_female,
             'avg_health': round(sum(r.health for r in living) / max(1, n), 1),
             'births': births,
             'deaths': deaths,
@@ -1930,7 +2034,7 @@ class Simulation:
                 'id': r.id, 'name': r.name, 'x': r.x, 'y': r.y,
                 'age': r.age, 'energy': round(r.energy, 1),
                 'health': round(r.health, 1), 'gen': r.generation,
-                'parent_id': r.parent_id,
+                'parent_id': r.parent_id, 'sex': r.sex, 'spouse_id': r.spouse_id,
                 'str': round(r.traits.strength, 2),
                 'spd': round(r.traits.speed, 2),
                 'per': round(r.traits.perception, 2),
