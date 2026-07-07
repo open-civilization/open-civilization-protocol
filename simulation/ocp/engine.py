@@ -1777,13 +1777,24 @@ class Simulation:
             if s > 0:
                 gini = sum((2*i - n + 1) * e for i, e in enumerate(es)) / (n * s)
 
-        # Clustering: avg number of residents within radius 2
+        # Clustering: avg number of residents within radius 2 — bucketed by grid cell for
+        # O(n) instead of the previous O(n^2) all-pairs distance check, which became the
+        # dominant per-tick cost as population grew (1292 residents was ~1.67M comparisons
+        # every single tick, measured live at 15+ second API response times).
         cluster = 0.0
         if n > 0:
+            buckets: dict[tuple, list] = {}
             for r in living:
-                cluster += sum(1 for r2 in living if r2.id != r.id
-                               and abs(r2.x - r.x) + abs(r2.y - r.y) <= 2)
-            cluster /= n
+                buckets.setdefault((r.x, r.y), []).append(r)
+            total = 0
+            for r in living:
+                for dx in range(-2, 3):
+                    max_dy = 2 - abs(dx)
+                    for dy in range(-max_dy, max_dy + 1):
+                        for r2 in buckets.get((r.x + dx, r.y + dy), ()):
+                            if r2.id != r.id:
+                                total += 1
+            cluster = total / n
 
         # Knowledge statistics
         storage_holders = sum(1 for r in living if 'food_storage' in r.known_knowledge)
