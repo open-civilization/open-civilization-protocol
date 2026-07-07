@@ -2114,7 +2114,13 @@ class Simulation:
                 m = c.season_mult(season)
                 if c.biomass < c.biomass_cap:
                     cultivation_bonus = 1.0 + c.cultivation * CULTIVATION_MAX_BONUS * c.ag_tech_mult
-                    c.biomass = min(c.biomass_cap, c.biomass + TERRAIN[c.terrain]['regrow'] * m * cultivation_bonus)
+                    # CARRYING_CAPACITY_MULT applies here too (real regrowth), not just to the
+                    # calculated carrying_cap/pressure number below -- an earlier version only
+                    # inflated the CALCULATED capacity, which made the reported `pressure` metric
+                    # look fine (masking fertility/disease penalties that key off it) while the
+                    # real food actually available to forage hadn't changed at all. Applying the
+                    # same multiplier to real regrowth keeps both numbers honest and consistent.
+                    c.biomass = min(c.biomass_cap, c.biomass + TERRAIN[c.terrain]['regrow'] * m * cultivation_bonus * CARRYING_CAPACITY_MULT)
                 # Untended land slowly reverts to wild (Law 10 Entropy) — cultivation LEVEL
                 # lapses, but ag_tech_mult (the technique itself) does not un-happen
                 if c.cultivation > 0:
