@@ -67,10 +67,14 @@ REPRODUCTION_ENERGY = 1300.0    # lowered from 1800 (60% of max) -- live data sh
 # 300 (not 750), so a female at the new lower REPRODUCTION_ENERGY=1300 threshold still keeps
 # 1000 energy after paying it, above the malnutrition-stress line -- the earlier failure mode
 # doesn't apply the same way here.
-REPRODUCTION_COST = 750.0       # reserve spent per parent per birth
-FEMALE_REPRODUCTION_COST = 300.0  # lowered further from 550 -- female energy income is
-                                    # already reduced (FEMALE_FORAGE_MULT), so childbirth itself
-                                    # shouldn't cost her the same flat amount as a male
+REPRODUCTION_COST = 200.0       # reserve spent per parent per birth -- lowered from 750 (via an
+                                  # intermediate 550/300 split); instrumented live testing found
+                                  # 96.6% of ALL health-loss events came from caloric erosion,
+                                  # confirming an aggregate energy deficit, not a disease problem
+                                  # -- reproduction cost was a real, frequent drain on that budget
+                                  # once postpartum spacing was removed (births happen often)
+FEMALE_REPRODUCTION_COST = 200.0  # unified with the male cost now that the base is already low
+                                    # enough not to need a separate, further-reduced female value
 OFFSPRING_ENERGY = 600.0        # newborn starting reserve -- baseline, at parents right at
                                   # REPRODUCTION_ENERGY threshold (see OFFSPRING_ENERGY_PARENT_SCALE)
 OFFSPRING_ENERGY_PARENT_SCALE = 0.3  # fraction of parents' average post-birth energy surplus
@@ -151,7 +155,10 @@ INBREEDING_AGING_PENALTY = 0.25    # added to the age-decline probability alongs
                                      # shortened expected lifespan from accumulated genetic load
 # Sex-based division of labor (see _do_forage) — females retain a real, if reduced, foraging
 # contribution rather than zero; see the note at the gain calculation for why zero failed.
-FEMALE_FORAGE_MULT = 0.5
+FEMALE_FORAGE_MULT = 0.7  # raised from 0.5 -- with instrumented testing showing the population's
+                            # aggregate energy supply chronically running a real deficit (96.6%
+                            # of health-loss events from caloric erosion, not disease), 0.5 was
+                            # too conservative now that so much else has changed since it was set
 # Mate provisioning reliability (see decide()'s MATE PROVISIONING block and _do_interact) --
 # live data showed females dying at roughly half the male lifespan (avg death age 48 vs 83),
 # overwhelmingly from malnutrition-driven health decline, because a male's own 1800-energy
@@ -187,6 +194,36 @@ FISSION_MIN_DISTANCE = 25   # cells -- genuinely long-distance, several times MI
                              # distinct cluster rather than a shifted version of the same one
 FISSION_SEARCH_RADIUS = 8   # sample radius around a far-flung probe point (see
                              # _find_fission_target) -- cheap, independent of population size
+# Gifted scouts (see Resident.is_gifted_scout) -- rare individuals whose intelligence,
+# perception, strength, AND speed all happen to be exceptional simultaneously, purely from the
+# existing continuous trait system (RFC-0004: emergence from combinations of simpler traits,
+# not a new hardcoded "leadership" category). They see farther and can lead bonded followers to
+# a distant target they alone found (see FISSION), an emergent form of leadership rather than
+# an authored Leader role.
+GIFTED_SCOUT_TRAIT_THRESHOLD = 1.15  # calibrated live: at 1.3, ~0/1000 population ever
+                                       # qualified (too strict given regression-to-the-mean
+                                       # pulls trait blends back toward 1.0); at 1.15, roughly
+                                       # 0.2-0.5% of a population qualifies -- genuinely rare
+                                       # but actually occurs at population scales of a few hundred+
+GIFTED_SCOUT_CELL_CAP = 30           # expanded terrain-scan radius, vs PERCEPTION_CELL_CAP for
+                                       # everyone else -- rare enough this doesn't reintroduce
+                                       # the performance problem that cap was fixing
+GIFTED_SCOUT_SEARCH_RADIUS = 12      # wider _find_fission_target sampling radius for scouts
+GIFTED_SCOUT_HUNT_BONUS = 1.4        # forage output multiplier in cold/tropical zones (low
+                                       # farming suitability, where hunting/gathering skill
+                                       # matters more than cultivation) -- see _do_forage
+GIFTED_SCOUT_CROWD_RADIUS = 6        # in _explore, a scout in a temperate zone treats any
+                                       # other resident within this radius as "crowded" and
+                                       # downweights that direction, preferring genuinely
+                                       # unclaimed land over already-contested territory
+GIFTED_SCOUT_DANGER_SENSE_RADIUS = 3 # radius within which a gifted scout can spot a real
+                                       # raid threat (high risk_tolerance, no/weak bond) before
+                                       # it happens, and lead bonded kin away from it
+# FOLLOW STRONGER (see _capability, decide()) -- not exclusive to gifted scouts: ANY bonded
+# resident who is meaningfully more capable is worth staying near, since proximity is what
+# lets existing food-share/provisioning mechanics actually help. Margin avoids everyone
+# constantly chasing everyone over trivial trait noise -- must be a real, not marginal, gap.
+CAPABILITY_FOLLOW_MARGIN = 1.5
 BASELINE_ENERGY_COST = 60.0     # baseline daily metabolic burn before season/technology modifiers
 # Carrying capacity ceiling (see Simulation._tick's carrying_cap calculation) -- raised so the
 # founding generation and its descendants have enough headroom to coexist rather than the young
@@ -195,6 +232,16 @@ BASELINE_ENERGY_COST = 60.0     # baseline daily metabolic burn before season/te
 # population precisely because total population was already pinned near the old, tighter cap).
 CARRYING_CAPACITY_MULT = 1.6
 PERCEPTION_BASE_RADIUS = 20
+PERCEPTION_CELL_CAP = 4    # lowered further from 12 per direct request -- 81 cells/call is
+                           # plenty for local foraging/movement decisions.
+                           # hard cap on the radius used for _nearby_cells specifically (see
+                           # decide()) -- view_radius() itself can reach 60-65 at high
+                           # perception/sociability, and _nearby_cells is an O(radius^2) grid
+                           # scan (not bucketable the way resident lookups are), so leaving it
+                           # uncapped made a single call ~17,000 cell checks -- profiled as ~70%
+                           # of total tick time once population grew into the many hundreds.
+                           # Resident-search radius (near_res, social/reproduction range) is
+                           # unaffected -- only the terrain/food-cell scan is capped.
 MAX_HEALTH = 100.0
 SEASON_LENGTH = 8
 TRAIT_MUTATION = 0.15
@@ -285,9 +332,23 @@ NUTRITION_DEBT_CAP = 100.0      # debt ceiling
 # rather than being a uniformly weaker version of the male profile.
 FEMALE_UPKEEP_MULT = 0.75          # 25% lower baseline metabolic burn
 FEMALE_NUTRITION_THRESHOLD_MULT = 0.75  # her stress/recovery energy points scale down to match
-FEMALE_MAX_AGE_BONUS = 15  # real human females statistically outlive males -- her effective
-                            # ceiling (see MAX_AGE) and decline curve (see AGE_DECLINE_SPAN)
-                            # both stretch by this many extra years
+# Sex-differentiated end-of-productivity design (replaces an earlier "female lives 15 years
+# longer, same shape" version): a female's real productive/reproductive window is bounded, and
+# past it she is deliberately made to decline FAST rather than linger for decades consuming
+# food without contributing energy or children -- a real resource-allocation logic, not just
+# "women live longer." A male's productive window instead fades gradually: he keeps foraging
+# but at declining efficiency, rather than a hard cutoff.
+FEMALE_FERTILITY_MAX_AGE = 60   # reproduction eligibility ends here (see decide()'s REPRODUCE
+                                  # block) -- 15-60 is her full productive/reproductive window
+FEMALE_POST_FERTILITY_DECLINE = 12.0  # flat health loss/tick once past FEMALE_FERTILITY_MAX_AGE
+                                        # -- steep and roughly age-independent past this point,
+                                        # by design a fast decline (~8-10 ticks to death), not a
+                                        # gradual one -- "quickly dies, stops costing food"
+MALE_FORAGE_DECLINE_ONSET = 50  # a male's foraging efficiency starts fading past this age
+MALE_FORAGE_DECLINE_RATE = 0.02  # fraction of forage output lost per year past onset (linear),
+                                    # floored at MALE_FORAGE_DECLINE_FLOOR so he never drops to
+                                    # zero -- he keeps contributing, just less over time
+MALE_FORAGE_DECLINE_FLOOR = 0.4  # minimum forage efficiency multiplier at advanced age
 AGE_DECLINE_ONSET = 30          # age decline can begin this early if malnourished
 AGE_DECLINE_SPAN = 60           # a well-fed resident's decline stretches across this many years
 ACCIDENT_DMG_MAX = 22
@@ -413,6 +474,15 @@ TRADE_GIFT_FRACTION = 0.25       # fraction of the surplus given away per succes
 # area in history). A cell's ag_tech_mult ratchets up to the best tier any farmer working
 # it has achieved and never decreases — technique embedded in how a plot is worked doesn't
 # un-happen, even though the plot's cultivation LEVEL can still lapse if untended.
+# Real agricultural-revolution productivity jump (see _do_forage's conversion calculation) --
+# raised from a much smaller skill-only bonus (20.0) after instrumented live testing showed the
+# population's aggregate energy supply running a genuine, chronic deficit (96.6% of all
+# health-loss events came from caloric erosion/death-zone, not disease).
+CROP_CULTIVATION_BASE_BONUS = 30.0   # immediate boost just for having adopted farming at all
+CROP_CULTIVATION_SKILL_BONUS = 90.0  # additional ceiling at full skill+suitability (was 20.0)
+ANIMAL_HUSBANDRY_BASE_BONUS = 20.0   # smaller than farming's -- herding is a real but secondary
+                                       # economy alongside cultivation, not the primary lever
+ANIMAL_HUSBANDRY_SKILL_BONUS = 45.0  # (was 20.0)
 IRRIGATION_DISCOVERY_CHANCE = 0.003    # per tick, requires crop_cultivation + water-adjacent cell
 IRRIGATION_MULT = 1.5
 BREEDING_DISCOVERY_CHANCE = 0.002      # per tick, requires deep crop_cultivation mastery
@@ -556,9 +626,14 @@ def _relatedness(a, b):
 
 
 def _is_fertile(r, tick):
-    """Postpartum recovery gate (see POSTPARTUM_RECOVERY_TICKS) -- males have no birth-spacing
-    constraint, only whoever actually bears the child does."""
-    if r.sex != 'female' or r.last_birth_tick is None:
+    """Postpartum recovery gate (see POSTPARTUM_RECOVERY_TICKS) plus the female fertility
+    ceiling (see FEMALE_FERTILITY_MAX_AGE) -- males have neither a birth-spacing nor an age
+    constraint on reproduction, only whoever actually bears the child does."""
+    if r.sex != 'female':
+        return True
+    if r.age > FEMALE_FERTILITY_MAX_AGE:
+        return False
+    if r.last_birth_tick is None:
         return True
     return (tick - r.last_birth_tick) >= POSTPARTUM_RECOVERY_TICKS
 
@@ -853,6 +928,10 @@ class Resident:
                                              # reproduction cadence was purely energy-gated,
                                              # measured live at an average ~17 ticks between a
                                              # mother's successive births with no real minimum
+    scout_target: Optional[tuple] = None  # (x, y) of the best distant land a gifted scout has
+                                            # found (see is_gifted_scout, FISSION in decide()) --
+                                            # bonded followers migrate toward the same target
+                                            # instead of each independently random-sampling
     # Cumulative inbreeding load (0.0 = fresh outside genetics, higher = generations of
     # within-lineage mating) -- NOT reset by an unrelated pairing, but DILUTED by one, since a
     # child's load is the average of both parents' plus whatever the immediate pairing itself
@@ -916,6 +995,16 @@ class Resident:
 
     def has_priest_standing(self):
         return self.priest_standing() >= PRIEST_STANDING_THRESHOLD and self.age > REPRODUCTION_AGE
+
+    def is_gifted_scout(self):
+        """Rare individuals whose intelligence, perception, strength, AND speed all happen to
+        be exceptional simultaneously -- a pure readout over the existing continuous trait
+        system (RFC-0004: emergence from combinations of simpler traits, not a new hardcoded
+        'leadership' category). They see farther (see decide()'s cell-scan radius) and can lead
+        bonded followers to a distant target they alone found (see FISSION/scout_target)."""
+        t = self.traits
+        return (t.intelligence > GIFTED_SCOUT_TRAIT_THRESHOLD and t.perception > GIFTED_SCOUT_TRAIT_THRESHOLD
+                and t.strength > GIFTED_SCOUT_TRAIT_THRESHOLD and t.speed > GIFTED_SCOUT_TRAIT_THRESHOLD)
 
 
 # ── World Generation ──
@@ -1228,29 +1317,58 @@ def _spawn(rid, grid, tick, parent=None, partner=None, spawn_center_x=None):
 # ── Perception ──
 
 def _nearby_cells(x, y, r, grid):
+    # Iterate the Manhattan-distance diamond directly (dx bounded by r-abs(dy)) instead of a
+    # full (2r+1)^2 square filtered after the fact -- the square wastes ~40% of iterations on
+    # cells outside the diamond for large r, and this was profiled as the single largest
+    # per-tick cost once population grew large (see PERCEPTION_CELL_CAP).
     cells = []
-    for dy in range(-r, r+1):
-        for dx in range(-r, r+1):
-            nx, ny = x+dx, y+dy
-            if 0 <= nx < GRID_W and 0 <= ny < GRID_H and abs(dx)+abs(dy) <= r:
-                cells.append((grid[ny][nx], abs(dx)+abs(dy)))
+    y_lo, y_hi = max(0, y - r), min(GRID_H - 1, y + r)
+    for ny in range(y_lo, y_hi + 1):
+        dy_abs = abs(ny - y)
+        max_dx = r - dy_abs
+        x_lo, x_hi = max(0, x - max_dx), min(GRID_W - 1, x + max_dx)
+        row = grid[ny]
+        for nx in range(x_lo, x_hi + 1):
+            cells.append((row[nx], dy_abs + abs(nx - x)))
     return cells
 
 
-def _nearby_residents(x, y, r, residents):
+RESIDENT_BUCKET_SIZE = 20  # see _tick's resident_buckets construction and _nearby_residents
+
+
+def _nearby_residents(x, y, r, residents, buckets=None):
+    """`buckets` (built once per tick, see Simulation._tick) turns this from an O(n) linear
+    scan into an O(k) lookup where k is local density, not total population -- decide() calls
+    this once per living resident every tick, so the unbucketed version was O(n^2) in aggregate
+    per tick, which became the dominant cost once population grew into the many hundreds (the
+    same bug class as the earlier O(n) 'cluster' metric fix, but on a much hotter path). Falls
+    back to the old linear scan when no bucket index is supplied (e.g. one-off callers)."""
+    if buckets is not None:
+        bx, by = x // RESIDENT_BUCKET_SIZE, y // RESIDENT_BUCKET_SIZE
+        span = r // RESIDENT_BUCKET_SIZE + 1
+        result = []
+        for dbx in range(-span, span + 1):
+            for dby in range(-span, span + 1):
+                for res in buckets.get((bx + dbx, by + dby), ()):
+                    dist = abs(res.x - x) + abs(res.y - y)
+                    if 0 < dist <= r:
+                        result.append((res, dist))
+        return result
     return [(res, abs(res.x-x)+abs(res.y-y))
             for res in residents
             if res.alive and 0 < abs(res.x-x)+abs(res.y-y) <= r]
 
 
-def _find_fission_target(r, grid):
+def _find_fission_target(r, grid, search_radius=FISSION_SEARCH_RADIUS):
     """Pick a far-away, viable relocation target for band fission (see FISSION in decide()) --
     cheap sampling, not a population-density scan (O(1) probes x O(radius^2) cell check each,
     independent of population size). Biases toward unclaimed high-biomass terrain: a handful of
     random long-distance probe points are sampled, then the best-biomass passable cell found
     near any of them wins -- no attempt to compute true population density at range, which
     would require an O(n) or worse scan over all residents; this mirrors the same locality-only
-    perception model _nearby_cells already uses everywhere else."""
+    perception model _nearby_cells already uses everywhere else. `search_radius` is wider for
+    gifted scouts (see GIFTED_SCOUT_SEARCH_RADIUS) -- their exceptional perception finds a
+    genuinely better target than an ordinary resident's default search."""
     best_cell, best_score = None, -1
     for _ in range(5):
         angle = random.uniform(0, 2 * math.pi)
@@ -1259,10 +1377,19 @@ def _find_fission_target(r, grid):
         py = int(r.y + math.sin(angle) * dist)
         px = max(0, min(GRID_W - 1, px))
         py = max(0, min(GRID_H - 1, py))
-        for c, d in _nearby_cells(px, py, FISSION_SEARCH_RADIUS, grid):
+        for c, d in _nearby_cells(px, py, search_radius, grid):
             if c.passable() and c.biomass_cap > best_score:
                 best_cell, best_score = c, c.biomass_cap
     return best_cell
+
+
+def _capability(r):
+    """Simple combined capability readout (intelligence+perception+strength+speed) -- a pure
+    function of existing continuous traits, used to let ordinary residents gravitate toward
+    bonded individuals who are meaningfully more capable providers (see FOLLOW STRONGER in
+    decide()), not a new hardcoded trait."""
+    t = r.traits
+    return t.intelligence + t.perception + t.strength + t.speed
 
 
 # ── Fast-Tier Decision ──
@@ -1287,10 +1414,22 @@ def _step_toward(rx, ry, tx, ty, grid):
     return ('rest', None, None, None)
 
 
-def decide(r, grid, residents, tick, pressure=0.0):
+def decide(r, grid, residents, tick, pressure=0.0, buckets=None):
     radius = r.view_radius() + int(r.traits.sociability * 2)
-    cells = _nearby_cells(r.x, r.y, radius, grid)
-    near_res = _nearby_residents(r.x, r.y, radius, residents)
+    # _nearby_cells is O(radius^2) (a grid-cell bounding-box scan, not bucketable the same way
+    # as residents) -- view_radius() can reach 60-65 at high perception/sociability, making a
+    # single call ~17,000 cell checks; called once per living resident every tick, this became
+    # the dominant per-tick cost once population grew into the many hundreds (profiled: ~70% of
+    # total tick time). Real "nearby, worth walking to for food" doesn't need a 65-tile scan --
+    # capped well below the full social/resident perception radius, which is unaffected.
+    # Gifted scouts (see is_gifted_scout) get a genuinely larger scan radius, reflecting
+    # exceptional perception/intelligence -- rare enough (all four traits must simultaneously
+    # exceed GIFTED_SCOUT_TRAIT_THRESHOLD) that this doesn't reintroduce the perf problem
+    # PERCEPTION_CELL_CAP fixed for the general population.
+    scout_cap = GIFTED_SCOUT_CELL_CAP if r.is_gifted_scout() else PERCEPTION_CELL_CAP
+    cell_radius = min(radius, scout_cap)
+    cells = _nearby_cells(r.x, r.y, cell_radius, grid)
+    near_res = _nearby_residents(r.x, r.y, radius, residents, buckets)
     here = grid[r.y][r.x]
 
     season = SEASONS[(tick // SEASON_LENGTH) % 4]
@@ -1363,7 +1502,7 @@ def decide(r, grid, residents, tick, pressure=0.0):
         local_scarce = here.biomass < 10 and here.leftover < 5
         raidable_nearby = any(d <= 1 and res.energy > 900 for res, d in near_res)
         if local_scarce and not raidable_nearby and random.random() < MIGRATION_CHANCE:
-            wide_cells = _nearby_cells(r.x, r.y, radius + 4, grid)
+            wide_cells = _nearby_cells(r.x, r.y, cell_radius + 4, grid)
             far_candidates = [(c, d) for c, d in wide_cells if d > radius and c.biomass > 15]
             if far_candidates:
                 target_cell = max(far_candidates, key=lambda x: x[0].biomass)[0]
@@ -1383,11 +1522,47 @@ def decide(r, grid, residents, tick, pressure=0.0):
             and r.age > REPRODUCTION_AGE):
         local_scarce = here.biomass < 10 and here.leftover < 5
         raidable_nearby = any(d <= 1 and res.energy > 900 for res, d in near_res)
-        wide_scarce = not any(d > radius and c.biomass > 15 for c, d in _nearby_cells(r.x, r.y, radius + 4, grid))
+        wide_scarce = not any(d > radius and c.biomass > 15 for c, d in _nearby_cells(r.x, r.y, cell_radius + 4, grid))
         if local_scarce and not raidable_nearby and wide_scarce and random.random() < FISSION_CHANCE:
-            target_cell = _find_fission_target(r, grid)
+            # Gifted scouts (see is_gifted_scout) search wider and mark what they find so
+            # bonded followers migrate toward the SAME destination instead of each
+            # independently random-sampling their own direction -- an emergent, trait-driven
+            # form of leadership (RFC-0004: must emerge from combinations of simpler traits,
+            # not be a hardcoded category) rather than an authored "Leader" role or a scripted
+            # migration event. Only a real bond matters here, not merely proximity to a scout.
+            followed_target = None
+            if not r.is_gifted_scout():
+                for res, d in near_res:
+                    if res.id in r.bonds and res.scout_target is not None:
+                        followed_target = res.scout_target
+                        break
+            if followed_target:
+                return _step_toward(r.x, r.y, followed_target[0], followed_target[1], grid)
+            search_radius = GIFTED_SCOUT_SEARCH_RADIUS if r.is_gifted_scout() else FISSION_SEARCH_RADIUS
+            target_cell = _find_fission_target(r, grid, search_radius)
             if target_cell:
+                if r.is_gifted_scout():
+                    r.scout_target = (target_cell.x, target_cell.y)
                 return _step_toward(r.x, r.y, target_cell.x, target_cell.y, grid)
+
+    # DANGER SENSING: gifted scouts (see is_gifted_scout) can spot a real raid threat before
+    # it happens -- a nearby stranger with high risk_tolerance and no/weak bond, within
+    # striking range -- and flee it, rather than every resident only reacting to a raid after
+    # being hit. Bonded kin near a scout benefit from the same warning (real, if imperfect,
+    # threat perception, not authored combat AI or a scripted "danger" object). Outranks
+    # routine activity but not acute hunger -- fleeing on an empty stomach isn't survivable
+    # either.
+    if r.energy >= 1200 and (r.is_gifted_scout()
+            or any(res.id in r.bonds and res.is_gifted_scout() for res, d in near_res)):
+        threats = [(res, d) for res, d in near_res
+                   if d <= GIFTED_SCOUT_DANGER_SENSE_RADIUS
+                   and res.traits.risk_tolerance > 0.6
+                   and (res.id not in r.bonds or r.bonds[res.id].quality < REPRODUCTION_BOND_THRESHOLD)]
+        if threats:
+            threat = min(threats, key=lambda x: x[1])[0]
+            flee_x = r.x + (r.x - threat.x)
+            flee_y = r.y + (r.y - threat.y)
+            return _step_toward(r.x, r.y, flee_x, flee_y, grid)
 
     # CRITICAL / HUNGRY: find food
     if r.energy < 1200:
@@ -1460,7 +1635,7 @@ def decide(r, grid, residents, tick, pressure=0.0):
                 # stranger search would otherwise leave this branch permanently empty once a few
                 # generations pass, since STRANGER_REPRODUCTION_CHANCE succeeding doesn't help if
                 # there is no actual unrelated candidate within reach.
-                exogamy_pool = _nearby_residents(r.x, r.y, radius * 2, residents)
+                exogamy_pool = _nearby_residents(r.x, r.y, radius * 2, residents, buckets)
                 partners = [(res, d) for res, d in exogamy_pool
                             if res.energy > REPRODUCTION_ENERGY and res.age > REPRODUCTION_AGE
                             and res.sex != r.sex
@@ -1499,6 +1674,19 @@ def decide(r, grid, residents, tick, pressure=0.0):
                 return ('interact', None, None, mate.id)
             return _step_toward(r.x, r.y, mate.x, mate.y, grid)
 
+    # FOLLOW STRONGER: an ordinary resident gravitates toward a bonded provider who is
+    # meaningfully more capable (see _capability) than themselves -- proximity to a strong
+    # forager/hunter is what actually lets the existing food-share/provisioning mechanics
+    # (_do_interact) kick in, so real ability differences translate into real group cohesion
+    # rather than an authored "follower" role (RFC-0004: emergent from existing traits/bonds).
+    if r.energy > 1200 and near_res:
+        stronger = [(res, d) for res, d in near_res
+                    if res.id in r.bonds and _capability(res) > _capability(r) + CAPABILITY_FOLLOW_MARGIN]
+        if stronger:
+            leader = max(stronger, key=lambda x: _capability(x[0]))[0]
+            if abs(leader.x - r.x) + abs(leader.y - r.y) > 1:
+                return _step_toward(r.x, r.y, leader.x, leader.y, grid)
+
     # SOCIAL — prefer approaching someone already familiar (bonded or kin) over a genuine
     # stranger, mirroring real intergroup wariness: repeated trust builds within an existing
     # circle, contact with true outsiders stays comparatively rare (see RAID/_maybe_trade for
@@ -1514,11 +1702,17 @@ def decide(r, grid, residents, tick, pressure=0.0):
         return ('forage', None, None, None)
 
     # EXPLORE
-    return _explore(r, cells, grid)
+    return _explore(r, cells, grid, near_res)
 
 
-def _explore(r, cells, grid):
+def _explore(r, cells, grid, near_res=None):
     known = {(m.x, m.y) for m in r.memory}
+    # Gifted scouts (see is_gifted_scout) in a temperate zone are exceptional at spotting
+    # genuinely unclaimed land, not just high-biomass land -- real farming suitability is
+    # highest in temperate zones (see CLIMATE_ZONES), which is exactly where competition over
+    # good farmland matters most. Downweight (not hard-exclude) candidates already crowded by
+    # other residents, preferring open territory that reduces resource competition.
+    avoid_crowds = near_res is not None and r.is_gifted_scout() and climate_zone(r.y) == 'temperate'
     cands = []
     for c, d in cells:
         if not c.passable() or d == 0:
@@ -1526,6 +1720,11 @@ def _explore(r, cells, grid):
         s = c.biomass_cap
         if (c.x, c.y) not in known:
             s *= 2
+        if avoid_crowds:
+            crowd = sum(1 for res, _ in near_res
+                        if abs(res.x - c.x) + abs(res.y - c.y) <= GIFTED_SCOUT_CROWD_RADIUS)
+            if crowd > 0:
+                s /= (1 + crowd)
         cands.append((c, s))
     if cands:
         total = sum(s for _, s in cands)
@@ -1697,9 +1896,15 @@ def _do_forage(r, grid, tick, residents=None):
         # not routine operation.
         conversion = 38.0
         if farm_suit > 0 and 'crop_cultivation' in r.known_knowledge:
-            conversion += r.skills.get('crop_cultivation', 0) / 100.0 * farm_suit * 20.0
+            # Real agricultural revolution: farming yields substantially more usable energy per
+            # unit of harvested biomass than raw foraging technique, even before mastery -- a
+            # real baseline jump just for having adopted cultivation (CROP_CULTIVATION_BASE_BONUS),
+            # scaling further with skill/suitability up to a much larger ceiling than before
+            # (CROP_CULTIVATION_SKILL_BONUS, raised from 20.0 -- instrumented testing showed the
+            # population running a genuine, chronic aggregate energy deficit).
+            conversion += CROP_CULTIVATION_BASE_BONUS + r.skills.get('crop_cultivation', 0) / 100.0 * farm_suit * CROP_CULTIVATION_SKILL_BONUS
         if graze_suit > 0 and 'animal_husbandry' in r.known_knowledge:
-            conversion += r.skills.get('animal_husbandry', 0) / 100.0 * graze_suit * 20.0
+            conversion += ANIMAL_HUSBANDRY_BASE_BONUS + r.skills.get('animal_husbandry', 0) / 100.0 * graze_suit * ANIMAL_HUSBANDRY_SKILL_BONUS
         # Sex-based division of labor: reproduction/childcare responsibilities reduce, but
         # do not zero out, a female's foraging output — real hunter-gatherer ethnography
         # (e.g. Hadza gathering studies) shows women's gathering reliably contributes a
@@ -1708,7 +1913,20 @@ def _do_forage(r, grid, tick, residents=None):
         # aggregate production while consumption stayed the same, for both sexes) — this
         # keeps genuine asymmetry and real dependency on mate provisioning (_do_interact)
         # without making the population's energy math structurally unsolvable.
-        sex_mult = 1.0 if r.sex == 'male' else FEMALE_FORAGE_MULT
+        if r.sex == 'male':
+            # Foraging efficiency fades gradually past MALE_FORAGE_DECLINE_ONSET rather than a
+            # hard cutoff -- an older male keeps contributing energy, just less of it over time,
+            # unlike a female's steep post-fertility falloff (see the age-decline block).
+            years_past_onset = max(0, r.age - MALE_FORAGE_DECLINE_ONSET)
+            sex_mult = max(MALE_FORAGE_DECLINE_FLOOR, 1.0 - years_past_onset * MALE_FORAGE_DECLINE_RATE)
+        else:
+            sex_mult = FEMALE_FORAGE_MULT
+        # Gifted scouts (see is_gifted_scout) are also exceptional hunters/foragers in harsher
+        # zones -- their superior perception/strength/speed reads as real skill at tracking and
+        # catching prey specifically where farming suitability is low (cold/tropical), not a
+        # zone-independent flat bonus.
+        if r.is_gifted_scout() and cell.climate in ('cold', 'tropical'):
+            sex_mult *= GIFTED_SCOUT_HUNT_BONUS
         gain = harvest * conversion * sex_mult
         pre_cap_energy = r.energy + gain - effort
         r.energy = min(MAX_ENERGY, pre_cap_energy)
@@ -2149,8 +2367,19 @@ class Simulation:
         pop = len(living)
         self._pressure = pop / max(1, carrying_cap)
 
+        # Spatial bucket index for O(k) nearby-resident queries (see _nearby_residents) instead
+        # of an O(n) linear scan per query -- decide() calls this once per living resident every
+        # tick, so the unbucketed version was O(n^2) in aggregate per tick, which became the
+        # dominant cost (and eventually made the live server unresponsive) once population grew
+        # into the many hundreds. Same bug class as the earlier O(n) 'cluster' metric fix, just
+        # on a much hotter path. Built once per tick from a `living` snapshot -- residents born
+        # mid-tick (via reproduction) won't appear in it until next tick, an acceptable tradeoff.
+        resident_buckets = {}
+        for r in living:
+            resident_buckets.setdefault((r.x // RESIDENT_BUCKET_SIZE, r.y // RESIDENT_BUCKET_SIZE), []).append(r)
+
         def _nearby_fn(r):
-            return _nearby_residents(r.x, r.y, r.view_radius(), self.residents)
+            return _nearby_residents(r.x, r.y, r.view_radius(), self.residents, resident_buckets)
 
         self.ai.process_tick(self.residents, self.grid, _nearby_fn, tick)
 
@@ -2387,15 +2616,11 @@ class Simulation:
             # Age decline — onset and severity depend on nutritional history, not just raw
             # age. A well-fed resident's decline curve stretches toward MAX_AGE; a chronically
             # malnourished one (e.g. a pre-agriculture forager living hand-to-mouth) starts
-            # declining sharply in their 30s regardless of chronological age remaining.
-            # Female longevity (see FEMALE_MAX_AGE_BONUS) -- her decline curve stretches
-            # proportionally further, not just her hard ceiling, so she doesn't hit the same
-            # decline severity at the same raw age as a male despite living longer overall.
-            female_age_decline_span = AGE_DECLINE_SPAN + FEMALE_MAX_AGE_BONUS
-            effective_max_age = MAX_AGE + FEMALE_MAX_AGE_BONUS if r.sex == 'female' else MAX_AGE
-            effective_decline_span = female_age_decline_span if r.sex == 'female' else AGE_DECLINE_SPAN
+            # declining sharply in their 30s regardless of chronological age remaining. This
+            # baseline curve is the same for both sexes up through a female's fertile window --
+            # see the post-fertility cliff below for where she diverges from it.
             if r.age > AGE_DECLINE_ONSET:
-                base_progress = (r.age - AGE_DECLINE_ONSET) / effective_decline_span
+                base_progress = (r.age - AGE_DECLINE_ONSET) / AGE_DECLINE_SPAN
                 nutrition_penalty = (r.malnutrition_debt / NUTRITION_DEBT_CAP) * 0.8
                 # Inbreeding load shortens expected lifespan (RFC-0011: a genetics-level cost,
                 # not a behavioral prohibition) -- same mechanism as the malnutrition penalty,
@@ -2405,10 +2630,21 @@ class Simulation:
                 if random.random() < p:
                     r.health -= 5
 
+            # Post-fertility cliff (see FEMALE_FERTILITY_MAX_AGE/FEMALE_POST_FERTILITY_DECLINE)
+            # -- once a female is past her reproductive window, she is deliberately made to
+            # decline fast rather than linger for decades consuming food without contributing
+            # energy or children. This is a resource-allocation design choice, not merely
+            # "menopause happens": a real, steep, roughly age-independent health loss each tick.
+            if r.sex == 'female' and r.age > FEMALE_FERTILITY_MAX_AGE:
+                r.health -= FEMALE_POST_FERTILITY_DECLINE
+
             # Death check
-            if r.health <= 0 or r.age > effective_max_age:
-                if r.age > effective_max_age:
+            if r.health <= 0 or r.age > MAX_AGE:
+                if r.age > MAX_AGE:
                     cause = 'old_age'
+                elif r.sex == 'female' and r.age > FEMALE_FERTILITY_MAX_AGE:
+                    cause = 'senescence'  # distinct from 'disease' for observability -- see
+                                            # FEMALE_POST_FERTILITY_DECLINE
                 elif r.energy <= 0:
                     cause = 'starvation'
                 elif r.age < INFANT_AGE:
@@ -2443,7 +2679,7 @@ class Simulation:
                              'text': f'[AI] {r.name}: {ai_text[:80] if ai_text else "decided"}',
                              'x': r.x, 'y': r.y})
             else:
-                action, tx, ty, tid = decide(r, self.grid, self.residents, tick, self._pressure)
+                action, tx, ty, tid = decide(r, self.grid, self.residents, tick, self._pressure, resident_buckets)
 
             msg = None
             _energy_before_action = r.energy
@@ -2574,6 +2810,7 @@ class Simulation:
         writing_holders = sum(1 for r in living if 'writing' in r.known_knowledge)
         chief_holders = sum(1 for r in living if r.has_chief_standing())
         priest_holders = sum(1 for r in living if r.has_priest_standing())
+        gifted_scout_count = sum(1 for r in living if r.is_gifted_scout())
         shelter_holders = sum(1 for r in living if 'shelter_building' in r.known_knowledge)
         clothing_holders = sum(1 for r in living if 'clothing_making' in r.known_knowledge)
         fire_holders = sum(1 for r in living if 'fire_making' in r.known_knowledge)
@@ -2643,6 +2880,7 @@ class Simulation:
             'writing_holders': writing_holders,
             'chief_holders': chief_holders,
             'priest_holders': priest_holders,
+            'gifted_scout_count': gifted_scout_count,
             'group_count': group_count,
             'largest_group_size': largest_group_size,
             'shelter_holders': shelter_holders,
@@ -2710,6 +2948,7 @@ class Simulation:
                 'cultural_profile': r.cultural_profile,
                 'energy_given_away': round(r.energy_given_away, 1), 'students_taught': r.students_taught,
                 'inbreeding_load': round(r.inbreeding_load, 3),
+                'is_gifted_scout': r.is_gifted_scout(), 'scout_target': r.scout_target,
                 'str': round(r.traits.strength, 2),
                 'spd': round(r.traits.speed, 2),
                 'per': round(r.traits.perception, 2),
