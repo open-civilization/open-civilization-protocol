@@ -26,6 +26,7 @@ Each RFC should define:
 - [RFC-0008 Story Engine](/Users/robin/Documents/Playground/open-civilization/docs/rfc/RFC-0008-story-engine.md)
 - [RFC-0009 Player Protocol](/Users/robin/Documents/Playground/open-civilization/docs/rfc/RFC-0009-player-protocol.md)
 - [RFC-0010 Economy Protocol](/Users/robin/Documents/Playground/open-civilization/docs/rfc/RFC-0010-economy-protocol.md)
+- [RFC-0011 Kinship, Language Drift, Cultural Divergence, and Mating Competition](/Users/robin/Documents/Playground/open-civilization/docs/rfc/RFC-0011-kinship-language-culture-and-mating.md)
 
 ## Draft Status
 
