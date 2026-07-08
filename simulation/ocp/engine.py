@@ -107,6 +107,11 @@ STRANGER_REPRODUCTION_CHANCE = 0.7  # reproducing with a totally unbonded strang
                                      # pool and collapses the population; real small societies
                                      # commonly rely on exogamy at high, sometimes near-mandatory,
                                      # rates for exactly this reason (village/clan exogamy norms).
+# A version of exogamy that boosted STRANGER_REPRODUCTION_CHANCE by the resident's own
+# inbreeding_load, and preferred the lowest-inbreeding_load exogamy candidate over the nearest
+# one, was tried and reverted -- see the REPRODUCE block in decide() for what happened (real
+# population decline from the same "re-targets a distant candidate fresh every tick, rarely
+# closes the distance" failure pattern as the reverted territorial-retreat mechanic).
 # Incest avoidance (RFC-0011 Inbreeding and Mate Exclusion) — NOT a behavioral prohibition.
 # Reproduction between kin is never blocked outright (a population must always be ABLE to
 # reproduce, even when isolated) — instead, genetics does the limiting: offspring of related
@@ -153,6 +158,56 @@ INBREEDING_HEALTH_PENALTY = 0.25   # newborn starting health multiplier: at load
 INBREEDING_AGING_PENALTY = 0.25    # added to the age-decline probability alongside the existing
                                      # malnutrition penalty (see Simulation._tick) -- models
                                      # shortened expected lifespan from accumulated genetic load
+INBREEDING_LOAD_CAP = 1.0          # every penalty above is calibrated against "load=1.0 ==
+                                     # sustained multi-generation isolation" as its worst case
+                                     # (see INBREEDING_FITNESS_PENALTY's own comment), but the
+                                     # accumulation formula (average of parents' loads + a positive
+                                     # increment whenever they're related) has no ceiling -- in a
+                                     # population that bottlenecks down to one small closed group
+                                     # (no unrelated partner ever available, see group_count),
+                                     # every generation adds more with nothing to remove it. Live
+                                     # data caught this directly: avg_inbreeding_load reached 3.5-3.8
+                                     # (3.5-8x past the documented design ceiling) during a slow
+                                     # extinction where pressure stayed near 0 and avg_energy stayed
+                                     # healthy the entire time -- a purely genetic death spiral, not
+                                     # a resource one. Capping restores the ceiling the rest of the
+                                     # mechanic already assumes; it does not add a new penalty.
+# Opportunistic raiding (see the OPPORTUNISTIC RAID block in decide(), right after the
+# desperation-triggered RAID above it) — the existing raid trigger requires real desperation
+# (r.energy < 540 AND local biomass < 3 AND local leftover < 2), which is close to a Malthusian
+# last resort; once a population is well-fed (this session's carrying-capacity/output fixes),
+# that condition rarely fires at all. Live data confirmed it: 0 raid events out of 80 recent
+# events despite population spread across nearly the full map width in many small, spatially
+# adjacent clusters. This adds a second, independent trigger: a comfortable, physically stronger
+# resident can also raid a nearby weaker stranger purely because the power gap makes it
+# profitable, not because either party is starving -- still Hamilton's-rule stranger-preferring,
+# still an individual-level decision using only _capability (no authored war/territory object,
+# RFC-0007).
+OPPORTUNISTIC_RAID_ENERGY_MIN = 1400.0  # raider needs real comfort/surplus -- this is a
+                                          # profit-seeking choice, not another desperation valve
+OPPORTUNISTIC_RAID_POWER_RATIO = 1.5    # must be clearly the stronger party, not just willing
+OPPORTUNISTIC_RAID_CHANCE = 0.08        # scaled further by risk_tolerance in decide() -- rare
+                                          # and opportunistic, not a routine action
+# Coercion (see coerced_by on Resident, _do_raid's win branch, and _tick's forage-tribute
+# block) — population as a resource, RFC-0007 compliant: this is a per-individual relationship
+# field like spouse_id/bonds, not an authored "Slave" class or group object. An overwhelming
+# raid win against a target nobody is bonded strongly enough to defend can turn a one-off theft
+# into ongoing labor extraction — the coerced resident keeps deciding and acting for themselves
+# (forages, socializes, can still reproduce), only a share of their foraging surplus is
+# involuntarily redirected each tick, exactly the same "surplus flows to someone else" pattern
+# mate provisioning already uses, just coerced instead of chosen. Never stacks (one controller
+# at a time) and never permanent (RFC-0007: collapse/regression must stay possible) — ends when
+# the controller dies or via a small standing per-tick escape chance.
+COERCION_POWER_RATIO = 1.6         # raid win must be decisive, not a close fight
+COERCION_MAX_TARGET_BOND = 0.3     # target has no bond strong enough to imply someone would
+                                     # defend them
+COERCION_CHANCE = 0.15             # most decisive raid wins still stay simple one-off theft;
+                                     # only some escalate to ongoing control
+COERCION_TRIBUTE_SHARE = 0.4       # share of each forage energy gain redirected to the
+                                     # controller
+COERCION_ESCAPE_CHANCE = 0.005     # small per-tick chance to break free even while the
+                                     # controller is alive -- coercion is a standing risk, not
+                                     # a guaranteed permanent lock
 # Sex-based division of labor (see _do_forage) — females retain a real, if reduced, foraging
 # contribution rather than zero; see the note at the gain calculation for why zero failed.
 FEMALE_FORAGE_MULT = 0.7  # raised from 0.5 -- with instrumented testing showing the population's
@@ -194,6 +249,10 @@ FISSION_MIN_DISTANCE = 25   # cells -- genuinely long-distance, several times MI
                              # distinct cluster rather than a shifted version of the same one
 FISSION_SEARCH_RADIUS = 8   # sample radius around a far-flung probe point (see
                              # _find_fission_target) -- cheap, independent of population size
+# Territorial retreat (Hawk-Dove/Bourgeois asymmetric-contest framing) was attempted and
+# reverted -- see the comment in decide() where it used to live for what was tried and why it
+# didn't hold up across four rounds of local testing (real population decline toward
+# near-extinction and worsening inbreeding_load, not fixable by threshold tuning alone).
 # Gifted scouts (see Resident.is_gifted_scout) -- rare individuals whose intelligence,
 # perception, strength, AND speed all happen to be exceptional simultaneously, purely from the
 # existing continuous trait system (RFC-0004: emergence from combinations of simpler traits,
@@ -932,6 +991,11 @@ class Resident:
                                             # found (see is_gifted_scout, FISSION in decide()) --
                                             # bonded followers migrate toward the same target
                                             # instead of each independently random-sampling
+    coerced_by: Optional[int] = None  # id of whoever is forcibly extracting this resident's
+                                        # labor (see COERCION_* constants, _do_raid, and the
+                                        # forage-tribute block in Simulation._tick) -- not a
+                                        # status/class, just who this individual's surplus is
+                                        # currently, involuntarily, flowing to
     # Cumulative inbreeding load (0.0 = fresh outside genetics, higher = generations of
     # within-lineage mating) -- NOT reset by an unrelated pairing, but DILUTED by one, since a
     # child's load is the average of both parents' plus whatever the immediate pairing itself
@@ -1181,8 +1245,9 @@ def _spawn(rid, grid, tick, parent=None, partner=None, spawn_center_x=None):
         # a low-load partner (fresh diversity) dilute/improve on a high-load lineage (heterosis),
         # rather than every within-cluster pairing resetting to the same fixed penalty.
         if partner:
-            child_inbreeding_load = ((parent.inbreeding_load + partner.inbreeding_load) / 2
-                                       + _relatedness(parent, partner) * INBREEDING_LOAD_ACCUMULATION)
+            child_inbreeding_load = min(INBREEDING_LOAD_CAP,
+                                         (parent.inbreeding_load + partner.inbreeding_load) / 2
+                                         + _relatedness(parent, partner) * INBREEDING_LOAD_ACCUMULATION)
             traits = parent.traits.blend(partner.traits, child_inbreeding_load)
         else:
             child_inbreeding_load = parent.inbreeding_load
@@ -1479,6 +1544,20 @@ def decide(r, grid, residents, tick, pressure=0.0, buckets=None):
             target = max(pool, key=lambda x: x[0].energy)[0]
             return ('raid', None, None, target.id)
 
+    # OPPORTUNISTIC RAID: see OPPORTUNISTIC_RAID_* constants -- a second, independent raid
+    # trigger for a comfortable, physically stronger resident against a weaker nearby stranger,
+    # separate from the desperation valve above (which needs real local scarcity to fire at all
+    # and, empirically, almost never does once a population is well-fed).
+    if r.energy > OPPORTUNISTIC_RAID_ENERGY_MIN:
+        strangers_adjacent = [(res, d) for res, d in near_res
+                               if d <= 1 and res.energy > 900
+                               and (res.id not in r.bonds or r.bonds[res.id].quality <= 0)
+                               and _relatedness(r, res) < 0.25]
+        if strangers_adjacent and random.random() < OPPORTUNISTIC_RAID_CHANCE * r.traits.risk_tolerance:
+            candidate = max(strangers_adjacent, key=lambda x: x[0].energy)[0]
+            if _capability(r) > _capability(candidate) * OPPORTUNISTIC_RAID_POWER_RATIO:
+                return ('raid', None, None, candidate.id)
+
     # MIGRATE (winter): move to a warmer zone when the cold itself is the acute threat
     if r.energy < 900 and season == 'winter' and climate_zone(r.y) != 'tropical':
         if r.y > 52:  # Already in tropical
@@ -1544,6 +1623,19 @@ def decide(r, grid, residents, tick, pressure=0.0, buckets=None):
                 if r.is_gifted_scout():
                     r.scout_target = (target_cell.x, target_cell.y)
                 return _step_toward(r.x, r.y, target_cell.x, target_cell.y, grid)
+
+    # TERRITORIAL RETREAT was attempted here (Hawk-Dove/Bourgeois asymmetric-contest framing --
+    # individually flee a local area once nearby unbonded strangers are decisively stronger than
+    # one's own bonded allies) and reverted. Across four parameter passes -- including a
+    # same-social-circle stranger filter and a real destination search via
+    # _find_retreat_target, not a blind flee-direction step -- local 800-tick testing kept
+    # producing a real population decline toward near-extinction (e.g. 910 -> 28 with the most
+    # conservative thresholds tried) and avg_inbreeding_load climbing toward its cap instead of
+    # the intended effect of encouraging healthier outcrossing. This wasn't a simple
+    # too-trigger-happy problem fixable by raising thresholds -- something about adding a fourth
+    # competing reason to relocate (on top of MIGRATE general/winter and FISSION) structurally
+    # destabilized the population/reproduction economy, and needs a different design, not more
+    # parameter tuning, before it's tried again.
 
     # DANGER SENSING: gifted scouts (see is_gifted_scout) can spot a real raid threat before
     # it happens -- a nearby stranger with high risk_tolerance and no/weak bond, within
@@ -1635,6 +1727,16 @@ def decide(r, grid, residents, tick, pressure=0.0, buckets=None):
                 # stranger search would otherwise leave this branch permanently empty once a few
                 # generations pass, since STRANGER_REPRODUCTION_CHANCE succeeding doesn't help if
                 # there is no actual unrelated candidate within reach.
+                #
+                # An earlier version boosted this chance by inbreeding_load and preferred the
+                # lowest-inbreeding_load candidate over the nearest one within the pool (chasing
+                # the best heterosis payoff, not just any unrelated partner). Reverted: local
+                # testing showed the same failure pattern as the territorial-retreat attempt --
+                # re-evaluated fresh every tick with no persistent target, residents kept
+                # re-targeting a possibly-different "best" distant candidate each tick, rarely
+                # closing the distance and reproducing, and rarely foraging either. Real
+                # population decline (933 -> 35 over 800 ticks) resulted. Nearest-candidate
+                # selection, unconditionally, is what's actually stable.
                 exogamy_pool = _nearby_residents(r.x, r.y, radius * 2, residents, buckets)
                 partners = [(res, d) for res, d in exogamy_pool
                             if res.energy > REPRODUCTION_ENERGY and res.age > REPRODUCTION_AGE
@@ -1771,7 +1873,7 @@ def _do_move(r, tx, ty, grid):
     return None
 
 
-def _do_forage(r, grid, tick, residents=None):
+def _do_forage(r, grid, tick, same_cell_residents=None):
     cell = grid[r.y][r.x]
     if cell.biomass <= 0 and cell.leftover <= 0:
         return None
@@ -1894,7 +1996,11 @@ def _do_forage(r, grid, tick, residents=None):
         # (i.e. "well-fed" is the achievable norm, not a rare surplus state) — dipping into
         # the erosion/death bands should reflect genuine scarcity (winter, overpopulation),
         # not routine operation.
-        conversion = 38.0
+        conversion = 41.0  # raised from 38.0 -- live testing reached a births/deaths ratio of
+                            # 0.9972 (survived 3305 ticks, essentially at equilibrium but just
+                            # under it), so this is a small, deliberate nudge rather than another
+                            # large jump, to avoid repeating the earlier explosive-growth/
+                            # performance-crisis cycle
         if farm_suit > 0 and 'crop_cultivation' in r.known_knowledge:
             # Real agricultural revolution: farming yields substantially more usable energy per
             # unit of harvested biomass than raw foraging technique, even before mastery -- a
@@ -1949,10 +2055,13 @@ def _do_forage(r, grid, tick, residents=None):
         leftover_amount = harvest * retention
         cell.leftover += leftover_amount
 
-    # Resource conflict — competition over scarce food
-    if residents and cell.biomass < 15:
-        rivals = [o for o in residents if o.alive and o.id != r.id
-                  and o.x == r.x and o.y == r.y and o.energy < 1050]
+    # Resource conflict — competition over scarce food. same_cell_residents is pre-bucketed by
+    # exact (x, y) in _tick (see resident_buckets/same_cell_residents) so this doesn't need to
+    # scan the whole population (or, worse, self.residents including every resident who has
+    # ever lived) to find who else is standing on this tile -- see _nearby_residents's docstring
+    # for the O(n^2)-in-aggregate failure mode this mirrors.
+    if same_cell_residents and cell.biomass < 15:
+        rivals = [o for o in same_cell_residents if o.alive and o.id != r.id and o.energy < 1050]
         if rivals and random.random() < CONFLICT_CHANCE:
             rival = random.choice(rivals)
             r_power = r.traits.strength * random.uniform(0.7, 1.3)
@@ -2032,18 +2141,12 @@ def _maybe_trade(r, target, tick):
     return f'{r.name} traded {good} with {target.name}'
 
 
-def _do_interact(r, target_id, residents, tick, pressure=0.0):
-    target = None
-    for res in residents:
-        if res.id == target_id and res.alive:
-            target = res
-            break
-    if not target:
+def _do_interact(r, target_id, residents_by_id, tick, pressure=0.0):
+    target = residents_by_id.get(target_id)
+    if target is None or not target.alive:
         return None
 
     event_msg = None
-    if r.id not in [b.rid for b in r.bonds.values()]:
-        pass
     if target.id not in r.bonds:
         r.bonds[target.id] = Bond(target.id, 0.0, tick)
         event_msg = f'{r.name} met {target.name}'
@@ -2164,13 +2267,9 @@ def _do_interact(r, target_id, residents, tick, pressure=0.0):
     return event_msg
 
 
-def _do_reproduce(r, target_id, residents, grid, tick, next_id):
-    target = None
-    for res in residents:
-        if res.id == target_id and res.alive:
-            target = res
-            break
-    if not target:
+def _do_reproduce(r, target_id, residents_by_id, all_residents, grid, tick, next_id):
+    target = residents_by_id.get(target_id)
+    if target is None or not target.alive:
         return None, next_id
     if INCEST_AVOIDANCE_ENABLED and _relatedness(r, target) >= INCEST_RELATEDNESS_THRESHOLD:
         # RFC-0011 hard guard: decide()'s candidate filtering already excludes kin, but this
@@ -2205,17 +2304,13 @@ def _do_reproduce(r, target_id, residents, grid, tick, next_id):
 
     next_id += 1
     child = _spawn(next_id, grid, tick, parent=r, partner=target)
-    residents.append(child)
+    all_residents.append(child)
     return f'{child.name} born to {r.name} & {target.name} (gen {child.generation})', next_id
 
 
-def _do_raid(r, target_id, residents, tick):
-    target = None
-    for res in residents:
-        if res.id == target_id and res.alive:
-            target = res
-            break
-    if not target or abs(r.x - target.x) + abs(r.y - target.y) > 1:
+def _do_raid(r, target_id, residents_by_id, tick):
+    target = residents_by_id.get(target_id)
+    if target is None or not target.alive or abs(r.x - target.x) + abs(r.y - target.y) > 1:
         return None
 
     r_power = r.traits.strength * random.uniform(0.6, 1.4)
@@ -2246,7 +2341,23 @@ def _do_raid(r, target_id, residents, tick):
                     del target.resources[steal_target]
                 r.resources[steal_target] = r.resources.get(steal_target, 0.0) + steal_amount
                 resource_msg = f' and {steal_amount:.1f} {steal_target}'
-        return f'{r.name} raided {target.name} — stole {stolen:.0f} food{resource_msg}'
+
+        # Coercion — see COERCION_* constants. An overwhelming win against a target nobody is
+        # bonded strongly enough to defend can escalate a one-off theft into ongoing labor
+        # extraction rather than granting the raider anything they didn't individually win.
+        # Excludes kin (Hamilton's rule, matching decide()'s RAID stranger-targeting bias) and
+        # never stacks -- a resident can only be coerced by one controller at a time.
+        coercion_msg = ''
+        if (target.coerced_by is None and r_power > t_power * COERCION_POWER_RATIO
+                and _relatedness(r, target) < 0.25
+                and random.random() < COERCION_CHANCE
+                and max((b.quality for bid, b in target.bonds.items()
+                         if bid != r.id and (o := residents_by_id.get(bid)) is not None and o.alive),
+                        default=0.0) < COERCION_MAX_TARGET_BOND):
+            target.coerced_by = r.id
+            coercion_msg = f' — {target.name} is now under {r.name}\'s control'
+
+        return f'{r.name} raided {target.name} — stole {stolen:.0f} food{resource_msg}{coercion_msg}'
     else:
         r.health -= random.uniform(10, 28)
         if r.id in target.bonds:
@@ -2378,10 +2489,25 @@ class Simulation:
         for r in living:
             resident_buckets.setdefault((r.x // RESIDENT_BUCKET_SIZE, r.y // RESIDENT_BUCKET_SIZE), []).append(r)
 
-        def _nearby_fn(r):
-            return _nearby_residents(r.x, r.y, r.view_radius(), self.residents, resident_buckets)
+        # id -> Resident and (x,y) -> [Resident] indexes, built once per tick from `living`
+        # rather than `self.residents` (which never removes dead residents and only grows,
+        # currently far larger than the living population after enough ticks) -- these back
+        # the interact/reproduce/raid target lookups and _do_forage's same-tile rival check,
+        # replacing what used to be an O(len(self.residents)) linear scan on EVERY such call.
+        # That scan re-running per action, per tick, against an ever-growing all-time resident
+        # list is what actually caused response times to keep degrading over the life of a long
+        # run even while the living population itself stayed flat -- same bug class as the
+        # resident_buckets/_nearby_residents fix above, just hiding in a different set of call
+        # sites.
+        residents_by_id = {r.id: r for r in living}
+        same_cell_residents = {}
+        for r in living:
+            same_cell_residents.setdefault((r.x, r.y), []).append(r)
 
-        self.ai.process_tick(self.residents, self.grid, _nearby_fn, tick)
+        def _nearby_fn(r):
+            return _nearby_residents(r.x, r.y, r.view_radius(), living, resident_buckets)
+
+        self.ai.process_tick(living, self.grid, _nearby_fn, tick)
 
         # Pre-compute crowd density per cell for disease calculation
         cell_pop = {}
@@ -2658,10 +2784,9 @@ class Simulation:
                 if r.spouse_id is not None:
                     # Widowhood — free the surviving spouse to remarry rather than staying
                     # permanently bonded to a dead partner (see _do_reproduce's pair-bond gate).
-                    for other in self.residents:
-                        if other.id == r.spouse_id:
-                            other.spouse_id = None
-                            break
+                    other = residents_by_id.get(r.spouse_id)
+                    if other is not None:
+                        other.spouse_id = None
                 evts.append({'tick': tick, 'type': 'death',
                              'text': f'{r.name} died ({cause}, age {r.age}, gen {r.generation})',
                              'x': r.x, 'y': r.y})
@@ -2671,6 +2796,14 @@ class Simulation:
             if r.memory and random.random() < 0.02:
                 r.memory.pop(random.randint(0, len(r.memory) - 1))
 
+            # Coercion status — ends via the controller dying (checked lazily here rather than
+            # scanning coerced residents at the moment of a death) or a small standing chance of
+            # breaking free outright (see COERCION_ESCAPE_CHANCE); never a permanent lock.
+            if r.coerced_by is not None:
+                controller = residents_by_id.get(r.coerced_by)
+                if controller is None or not controller.alive or random.random() < COERCION_ESCAPE_CHANCE:
+                    r.coerced_by = None
+
             # Slow tier override or fast tier decision
             ai_action, ai_text = self.ai.get_override(r.id)
             if ai_action:
@@ -2679,24 +2812,36 @@ class Simulation:
                              'text': f'[AI] {r.name}: {ai_text[:80] if ai_text else "decided"}',
                              'x': r.x, 'y': r.y})
             else:
-                action, tx, ty, tid = decide(r, self.grid, self.residents, tick, self._pressure, resident_buckets)
+                action, tx, ty, tid = decide(r, self.grid, living, tick, self._pressure, resident_buckets)
 
             msg = None
             _energy_before_action = r.energy
             if action == 'move':
                 msg = _do_move(r, tx, ty, self.grid)
             elif action == 'forage':
-                msg = _do_forage(r, self.grid, tick, self.residents)
+                msg = _do_forage(r, self.grid, tick, same_cell_residents.get((r.x, r.y)))
             elif action == 'rest':
                 r.health = min(MAX_HEALTH, r.health + 2.5 * r.traits.endurance)
             elif action == 'interact':
-                msg = _do_interact(r, tid, self.residents, tick, self._pressure)
+                msg = _do_interact(r, tid, residents_by_id, tick, self._pressure)
             elif action == 'raid':
-                msg = _do_raid(r, tid, self.residents, tick)
+                msg = _do_raid(r, tid, residents_by_id, tick)
             elif action == 'scavenge':
                 msg = _do_scavenge(r, self.grid)
             elif action == 'reproduce':
-                msg, self._next_id = _do_reproduce(r, tid, self.residents, self.grid, tick, self._next_id)
+                msg, self._next_id = _do_reproduce(r, tid, residents_by_id, self.residents, self.grid, tick, self._next_id)
+
+            # Coercion tribute — a share of a coerced resident's own foraging gain is
+            # redirected to their controller before anything else is tallied (see coerced_by,
+            # COERCION_TRIBUTE_SHARE, and _do_raid's coercion branch). This is what makes
+            # controlling another person's labor economically worthwhile in the first place;
+            # the forager still ran their own decide()/skills, only the surplus is diverted.
+            if action == 'forage' and r.coerced_by is not None and r.energy > _energy_before_action:
+                controller = residents_by_id.get(r.coerced_by)
+                if controller is not None and controller.alive:
+                    tribute = (r.energy - _energy_before_action) * COERCION_TRIBUTE_SHARE
+                    r.energy -= tribute
+                    controller.energy = min(MAX_ENERGY, controller.energy + tribute)
 
             _action_delta = r.energy - _energy_before_action
             if _action_delta >= 0:
@@ -2881,6 +3026,7 @@ class Simulation:
             'chief_holders': chief_holders,
             'priest_holders': priest_holders,
             'gifted_scout_count': gifted_scout_count,
+            'coerced_count': sum(1 for r in living if r.coerced_by is not None),
             'group_count': group_count,
             'largest_group_size': largest_group_size,
             'shelter_holders': shelter_holders,
@@ -2949,6 +3095,7 @@ class Simulation:
                 'energy_given_away': round(r.energy_given_away, 1), 'students_taught': r.students_taught,
                 'inbreeding_load': round(r.inbreeding_load, 3),
                 'is_gifted_scout': r.is_gifted_scout(), 'scout_target': r.scout_target,
+                'coerced_by': r.coerced_by,
                 'str': round(r.traits.strength, 2),
                 'spd': round(r.traits.speed, 2),
                 'per': round(r.traits.perception, 2),

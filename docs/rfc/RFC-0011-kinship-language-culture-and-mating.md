@@ -241,6 +241,12 @@ The point is not to encode one universal morality.
 
 The point is to ensure that mating structure has real biological and social consequences.
 
+### Implementation Note: Bounding Cumulative Load
+
+The engine's `inbreeding_load` (child load = average of both parents' own accumulated load, plus an increment scaled by their relatedness) is a compounding, multi-generation quantity, not a one-off penalty — this is what lets a genuine outcross with a low-load partner dilute/improve on a high-load lineage (heterosis) rather than every pairing resetting to the same fixed cost.
+
+That accumulation formula MUST be bounded. Live data caught the failure mode directly: a population that bottlenecked down to one small, closed group (no unrelated partner ever reachable) saw `avg_inbreeding_load` climb to 3.5-3.8 — several times past every dependent penalty's own documented worst-case assumption of load=1.0 — during a slow extinction where food pressure stayed near zero and average energy stayed healthy the entire time. It was a purely genetic death spiral, not a resource one, and it was possible only because nothing capped the value. A hard ceiling (matching the existing worst-case documentation each dependent penalty already assumed) closes this without changing any of the per-generation math above it.
+
 ### Reproductive Exclusion
 
 Not every adult must reproduce.
