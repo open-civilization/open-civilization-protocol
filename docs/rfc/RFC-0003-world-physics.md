@@ -384,21 +384,28 @@ Phase 1 uses a 60×80 map. Initial population is seeded near the environment's n
 
 Implemented: a large river-island (`_carve_river`, mid-map) is a deliberately distinct economic
 zone rather than just more farmland. `Cell.near_island` marks it and its flanking water, which
-(a) multiplies fishing suitability (`TERRAIN_FISHING`, 2.5x near the island) and (b) is the only
-place in the temperate band where mining suitability is nonzero off mountain/desert terrain,
-making salt (`MINERAL_ARCHETYPES`) a de facto island-exclusive good through the existing
-zone-weighted archetype pick, no location special-case needed. Salt itself isn't food (minerals
-stay non-caloric/tradeable per the existing model) but multiplies forage energy gain 1.2x for
-whoever holds any, mirroring its real historical role as a preservative.
+multiplies fishing suitability (`TERRAIN_FISHING`, 2.5x near the island). Salt has its own
+dedicated, deterministic suitability (`SALT_WATER_SUITABILITY`/`SALT_ISLAND_SUITABILITY`,
+separate from the generic zone-weighted `MINERAL_ARCHETYPES` pick so it never biases the
+coal/iron_ore/oil chance): reachable at *any* water tile, not just near the island, but the
+island itself is ten times richer -- salt is a real, findable-anywhere good with a strong
+regional concentration, not an exclusive.
+
+Salt isn't food (minerals stay non-caloric/tradeable per the existing model), but now has real
+teeth on both sides: holding any multiplies forage gain 1.15x (`SALT_FOOD_BONUS_MULT`, mirroring
+its real preservative role), holding none applies a 0.85x penalty (`SALT_DEFICIT_MULT`) rather
+than a neutral baseline -- salt is a near-necessity, not a bonus, which is what actually makes
+seeking or trading for it matter. Live-tested: this measurably lowers total sustainable
+population (a real cost, most of the map doesn't have salt yet at any given time) without
+destabilizing births/deaths equilibrium.
 
 This pairs with dietary diversity (`recent_food_types` on Resident, a rolling per-type
 last-eaten-tick record bounded to the fixed food vocabulary): eating only one staple over a
 30-tick window caps forage gain at 0.75x, eating four or more distinct types raises it to 1.3x.
 A settlement anywhere is realistically limited to whatever one or two staples its local terrain
 suits, so sustained high output requires either genuine local variety (farm + herd + fish) or
-exchange with a differently-specialized settlement — the intended on-ramp toward trade actually
-mattering, not yet load-bearing on its own (see RFC-0007 for what is/isn't wired to trade
-specifically).
+exchange with a differently-specialized settlement (see RFC-0007 for the trade trigger this
+now actually connects to).
 
 ### Climate Zones
 

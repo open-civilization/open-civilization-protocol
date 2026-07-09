@@ -567,17 +567,16 @@ MINERAL_ARCHETYPES = {
     'coal':     {'zone_weights': {'cold': 3.0, 'temperate': 0.3, 'tropical': 0.0}},
     'iron_ore': {'zone_weights': {'cold': 2.0, 'temperate': 0.4, 'tropical': 0.0}},
     'oil':      {'zone_weights': {'cold': 1.5, 'temperate': 0.2, 'tropical': 0.0}},
-    # Salt has a huge temperate weight not because temperate land is generally salt-rich (it
-    # isn't -- TERRAIN_MINING gives 'plains'/'river' zero mining suitability), but because the
-    # island (see NEAR_ISLAND_MINING_SUITABILITY below) sits in the temperate band and is the
-    # only place in that band mining is viable at all -- this is what makes salt a de facto
-    # island-exclusive resource through the existing suitability mechanism, no special-cased
-    # location check needed.
-    'salt':     {'zone_weights': {'cold': 0.1, 'temperate': 5.0, 'tropical': 0.1}},
 }
-NEAR_ISLAND_MINING_SUITABILITY = 0.8  # lets salt-gathering happen on/around the island (see
-                                        # Cell.near_island) even on plains/river terrain that
-                                        # TERRAIN_MINING otherwise gives zero suitability
+# Salt (see the dedicated salt-discovery block in _do_forage, separate from the generic
+# zone-weighted mineral pick above) -- real evaporite geology concentrates at any standing or
+# flowing water, not just one climate band, so this is a location suitability (any water tile),
+# not a MINERAL_ARCHETYPES zone-weight entry. The island is a real salt-pan-grade concentration,
+# ten times any ordinary water tile elsewhere -- rare but not exclusive, so trade for it is a
+# strong incentive without making everyone off the island permanently locked out of ever finding
+# their own.
+SALT_WATER_SUITABILITY = 0.08
+SALT_ISLAND_SUITABILITY = 0.8
 MINING_DISCOVERY_CHANCE = 0.0025  # per qualifying forage tick, same order as DOMESTICATION_DISCOVERY_CHANCE
 MINING_YIELD_PER_TICK = 0.8       # base quantity added to a miner's stockpile per working tick
 CROP_SURPLUS_CONVERSION = 0.02    # kcal-of-excess-harvest -> tradeable crop-resource units
@@ -608,10 +607,21 @@ ANIMAL_HUSBANDRY_SKILL_BONUS = 45.0  # (was 20.0)
 FISHING_BASE_BONUS = 25.0            # between farming's and husbandry's -- a real, secondary
                                        # economy specific to water tiles, richest near the island
 FISHING_SKILL_BONUS = 60.0
-SALT_FOOD_BONUS_MULT = 1.2  # real historical role: salt is a preservative, not a calorie source
-                              # itself (see MINERAL_ARCHETYPES -- minerals stay non-food/tradeable)
-                              # -- holding any personally raises the effective value of food
-                              # foraged this tick, on top of (not instead of) dietary diversity
+SALT_FOOD_BONUS_MULT = 1.15  # real historical role: salt is a preservative, not a calorie
+                               # source itself (see MINERAL_ARCHETYPES -- minerals stay
+                               # non-food/tradeable) -- holding any personally raises the
+                               # effective value of food foraged this tick, on top of (not
+                               # instead of) dietary diversity
+SALT_DEFICIT_MULT = 0.85     # symmetric penalty for holding none -- salt is a near-island-
+                               # exclusive good (see Cell.near_island), so this is a real,
+                               # population-wide pressure toward trading for it (or migrating
+                               # near the island), not just a niche bonus for the few who
+                               # happen to already live there. Lowered from a flat 1.0 baseline
+                               # rather than sharpening SALT_FOOD_BONUS_MULT further, so the
+                               # total with/without spread (~1.35x) stays moderate given how
+                               # rare salt currently is to discover at all (never observed in a
+                               # 101-year live run) -- most of the population will carry this
+                               # penalty for a long time until trade actually spreads it.
 IRRIGATION_DISCOVERY_CHANCE = 0.003    # per tick, requires crop_cultivation + water-adjacent cell
 IRRIGATION_MULT = 1.5
 BREEDING_DISCOVERY_CHANCE = 0.002      # per tick, requires deep crop_cultivation mastery
@@ -1942,9 +1952,22 @@ def decide(r, grid, residents, tick, pressure=0.0, buckets=None):
     # stranger, mirroring real intergroup wariness: repeated trust builds within an existing
     # circle, contact with true outsiders stays comparatively rare (see RAID/_maybe_trade for
     # where outsider contact actually resolves — as conflict or exchange, not casual bonding).
-    if r.traits.sociability > 0.5 and near_res and pressure > 1.0 and random.random() < 0.5:
-        familiar = [res for res, d in near_res if res.id in r.bonds or _relatedness(r, res) > 0]
-        t = random.choice(familiar) if familiar and random.random() < 0.8 else random.choice(near_res)[0]
+    # A monotonous recent diet (see DIET_DIVERSITY_* / recent_food_types) is a second, independent
+    # reason to actually seek a stranger out here rather than default to someone familiar --
+    # otherwise nothing in this engine gives a well-fed-but-undiversified resident (pressure <=
+    # 1.0, so this block wouldn't even fire before) any reason to risk a stranger, and
+    # _maybe_trade's cross-region exchange (e.g. island salt for mainland grain) never gets a
+    # chance to happen at all. Still only ever acts on someone already in near_res -- no
+    # traveling toward a distant stranger, which is what made the reverted territorial-retreat/
+    # exogamy attempts unstable.
+    low_diversity = sum(1 for last in r.recent_food_types.values() if tick - last <= DIET_DIVERSITY_WINDOW) <= 1
+    if r.traits.sociability > 0.5 and near_res and (pressure > 1.0 or low_diversity) and random.random() < 0.5:
+        strangers = [res for res, d in near_res if res.id not in r.bonds and _relatedness(r, res) == 0]
+        if low_diversity and strangers:
+            t = random.choice(strangers)
+        else:
+            familiar = [res for res, d in near_res if res.id in r.bonds or _relatedness(r, res) > 0]
+            t = random.choice(familiar) if familiar and random.random() < 0.8 else random.choice(near_res)[0]
         if abs(t.x - r.x) + abs(t.y - r.y) <= 1:
             return ('interact', None, None, t.id) if r.age > 5 and random.random() < (1.0 / (1 + r.traits.sociability * 2)) * 1.5 or random.random() < 0.1 else ('rest', None, None, None)
 
@@ -2036,8 +2059,10 @@ def _do_forage(r, grid, tick, same_cell_residents=None):
     farm_suit = TERRAIN_FARMING.get(cell.terrain, 0) * zone_cfg['farming_suitability']
     graze_suit = TERRAIN_GRAZING.get(cell.terrain, 0) * zone_cfg['grazing_suitability']
     mine_suit = TERRAIN_MINING.get(cell.terrain, 0) * zone_cfg['mining_suitability']
-    if cell.near_island:
-        mine_suit = max(mine_suit, NEAR_ISLAND_MINING_SUITABILITY)
+    # Salt (see SALT_WATER_SUITABILITY/SALT_ISLAND_SUITABILITY) is its own suitability, not
+    # folded into mine_suit above -- it must never bias the zone-weighted coal/iron_ore/oil pick,
+    # just add a separate, deterministic path to salt specifically wherever there's water.
+    salt_suit = SALT_ISLAND_SUITABILITY if cell.near_island else (SALT_WATER_SUITABILITY if cell.water else 0)
     # Fishing (see TERRAIN_FISHING) isn't zone-gated like farming/grazing/mining -- real
     # fisheries exist in cold, temperate, and tropical water alike, so suitability is purely
     # terrain (is this water, and how good a fishery is it) plus the island proximity bonus.
@@ -2074,6 +2099,17 @@ def _do_forage(r, grid, tick, same_cell_residents=None):
                 'crop_type': mineral_type,
             })
             discovery_msg = f'{r.name} discovered how to mine {mineral_type}'
+    # Salt -- deterministic (not a zone-weighted archetype pick like coal/iron_ore/oil above),
+    # gated purely on salt_suit (any water, ten times richer near the island). Still the same
+    # 'mining' knowledge domain/yield/reinforcement machinery, just a different, location-driven
+    # discovery path into it.
+    if salt_suit > 0 and 'mining' not in r.known_knowledge:
+        if random.random() < MINING_DISCOVERY_CHANCE * salt_suit:
+            _learn_knowledge(r, 'mining', {
+                'level': 0.15, 'source': 'experimented_with_salt_gathering', 'tick_learned': tick,
+                'crop_type': 'salt',
+            })
+            discovery_msg = f'{r.name} discovered how to gather salt'
     if fish_suit > 0 and 'fishing' not in r.known_knowledge:
         if random.random() < DOMESTICATION_DISCOVERY_CHANCE * fish_suit:
             if random.random() < DOMESTICATION_SUCCESS_CHANCE:
@@ -2141,12 +2177,16 @@ def _do_forage(r, grid, tick, same_cell_residents=None):
         _reinforce_knowledge(r, 'fishing', 0.02)
 
     # Mining — extraction adds directly to the miner's personal resource stockpile rather
-    # than energy; minerals are goods to trade or have raided, not food.
-    if mine_suit > 0 and 'mining' in r.known_knowledge:
+    # than energy; minerals are goods to trade or have raided, not food. Yield uses whichever
+    # suitability actually applies to what this miner extracts -- a salt gatherer standing at a
+    # water tile has mine_suit == 0 there (TERRAIN_MINING has no entry for river/lake/coast),
+    # so this must read salt_suit for them instead, not the generic terrain-mining suitability.
+    if 'mining' in r.known_knowledge:
         mineral_type = r.known_knowledge['mining'].get('crop_type')
-        if mineral_type:
+        relevant_suit = salt_suit if mineral_type == 'salt' else mine_suit
+        if mineral_type and relevant_suit > 0:
             skill = r.skills.get('mining', 0) / 100.0
-            yield_amount = MINING_YIELD_PER_TICK * (0.5 + skill) * mine_suit
+            yield_amount = MINING_YIELD_PER_TICK * (0.5 + skill) * relevant_suit
             r.resources[mineral_type] = r.resources.get(mineral_type, 0.0) + yield_amount
         if random.random() < 0.03:
             _reinforce_knowledge(r, 'mining', 0.02)
@@ -2219,7 +2259,7 @@ def _do_forage(r, grid, tick, same_cell_residents=None):
         distinct_recent = sum(1 for last in r.recent_food_types.values() if tick - last <= DIET_DIVERSITY_WINDOW)
         diet_mult = DIET_DIVERSITY_MULT_MIN + (DIET_DIVERSITY_MULT_MAX - DIET_DIVERSITY_MULT_MIN) * min(1.0, (distinct_recent - 1) / 3.0)
 
-        salt_mult = SALT_FOOD_BONUS_MULT if r.resources.get('salt', 0) > 0 else 1.0
+        salt_mult = SALT_FOOD_BONUS_MULT if r.resources.get('salt', 0) > 0 else SALT_DEFICIT_MULT
         gain = harvest * conversion * sex_mult * diet_mult * salt_mult
         pre_cap_energy = r.energy + gain - effort
         r.energy = min(MAX_ENERGY, pre_cap_energy)
