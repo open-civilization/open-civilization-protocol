@@ -3,7 +3,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from .engine import Simulation
+from .engine import Simulation, SNAPSHOT_PATH
 from .ai import get_public_settings
 
 
@@ -23,7 +23,10 @@ from agents.simulation_scientist import agent_settings
 from agents.simulation_scientist import agent_control
 
 app = FastAPI(title="OCP Phase 1")
-sim = Simulation()
+sim = Simulation.load_or_create()  # resumes from SNAPSHOT_PATH if a valid one exists, so a
+                                     # routine code deploy (kill + respawn) no longer discards
+                                     # the current run -- falls back to a fresh Simulation()
+                                     # exactly as before if no snapshot is present or valid
 
 STATIC = Path(__file__).resolve().parent.parent / "static"
 ENGINE_PATH = Path(__file__).resolve().parent / "engine.py"
@@ -52,6 +55,14 @@ def tick():
     return {"ok": True}
 
 
+@app.post("/api/snapshot/save")
+def snapshot_save():
+    """Manual trigger, e.g. right before a code deploy, rather than waiting for the next
+    automatic SNAPSHOT_INTERVAL_SECONDS tick inside the live loop."""
+    sim.save_snapshot()
+    return {"ok": True, "tick": sim.tick_count}
+
+
 @app.post("/api/speed/{speed}")
 def speed(speed: int):
     sim.set_speed(speed)
@@ -63,6 +74,9 @@ def reset():
     global sim
     sim.pause()
     sim = Simulation()
+    # Clear any persisted snapshot -- otherwise the next process restart would silently load
+    # the old pre-reset state back in via load_or_create, undoing this reset.
+    SNAPSHOT_PATH.unlink(missing_ok=True)
     return {"ok": True}
 
 

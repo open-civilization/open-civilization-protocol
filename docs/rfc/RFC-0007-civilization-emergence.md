@@ -238,6 +238,46 @@ The engine SHOULD be able to detect (but MUST NOT create) the following structur
 - resource flow from periphery to center
 - decision-making patterns where few residents' choices affect many
 
+Implemented, individual-level building blocks for this (all riding on `chief_standing` — see
+RFC-0004 — a pure readout of a resident's own redistribution history, never assigned by the
+engine):
+
+- **Follower tribute**: a resident bonded to a chief-standing ally voluntarily redirects a
+  modest share of their own forage surplus to that leader each tick — the material counterpart
+  of the existing FOLLOW STRONGER behavior (bonded residents already physically gravitate
+  toward more capable allies). Does not inflate the chief's own `energy_given_away`, so
+  receiving tribute cannot itself manufacture more standing.
+- **Chiefly rivalry**: `chief_standing` is a scarce, contested status — a chief who opportunity-
+  raids (see below) preferentially targets another chief among qualifying candidates, rather
+  than treating every stranger as interchangeable prey.
+- **Mate choice concentration**: when multiple immediately-reachable reproduction candidates are
+  available, higher `chief_standing` is preferred (RFC-0011: "high-status male reproductive
+  concentration" is an explicitly sanctioned emergent pattern). Deliberately scoped to only
+  ever-adjacent candidates, never a reason to travel toward a distant "better" candidate
+  re-evaluated fresh each tick — see the Collapse and Regression note below for why.
+- **Leadership succession**: a dead chief's standing cannot be transferred (would be granting an
+  unearned capability), but their accumulated resources, half their remaining energy, and their
+  follower bond network transfer to an heir — the most capable gifted scout among their own
+  followers, falling back to the eldest living son. This is inherited capital giving the heir a
+  real head start, not an inherited title; the heir still has to redistribute to earn
+  `chief_standing` in their own right.
+- **Opportunistic raiding**: the original pressure-gated raid trigger requires real local
+  desperation to fire at all, which live data showed drops to ~zero once a population is
+  well-fed. A second, independent trigger lets a comfortable, decisively stronger resident raid
+  a weaker nearby stranger purely because the power gap is profitable — still Hamilton's-rule
+  stranger-preferring, still `_capability`-gated, no authored war object.
+
+**Attempted and reverted** (see Collapse and Regression): a Hawk-Dove/Bourgeois "territorial
+retreat" mechanic (individually flee a local area once nearby strangers are decisively stronger
+than one's own allies) and an inbreeding-load-aware exogamy preference (chase the
+lowest-`inbreeding_load` candidate rather than the nearest) were both implemented and tested
+across multiple parameter passes. Both produced a real population decline toward
+near-extinction, from the same root cause: re-evaluating and potentially re-targeting a distant
+"better" option fresh every tick, with no persistence, means a resident can spend indefinite
+time traveling without ever closing the distance or completing the action — chronic wasted
+movement instead of foraging/reproducing. Any future version of either idea needs a persistent,
+committed target (see `scout_target`'s pattern for FISSION) rather than a per-tick re-pick.
+
 ### Cultural Groups
 
 - behavioral or knowledge divergence between geographically separated populations

@@ -3,15 +3,29 @@ OCP Phase 1 Simulation Engine
 Minimal world tick runner implementing RFC-0001 through RFC-0007.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields, asdict
 from typing import Optional
+from pathlib import Path
 import random
 import math
 import time
 import threading
+import json
+import os
 from .ai import AIEngine
 
 # ── Configuration ──
+
+# Snapshot persistence (see Simulation.save_snapshot/load_or_create) -- a redeploy previously
+# meant killing and respawning the process, which always started a brand-new Simulation from
+# tick 0 (see run_forever.sh's respawn behavior throughout this project's deploy history).
+# Periodically saving live state and loading it back on the next startup means a routine code
+# deploy no longer discards the current run. Path lives next to settings.json (same
+# Path(__file__).resolve().parent.parent pattern as ai.py's SETTINGS_PATH), i.e. outside the
+# `ocp/` package directory that actually gets overwritten on deploy, and is never committed to
+# git (runtime state, not source).
+SNAPSHOT_PATH = Path(__file__).resolve().parent.parent / "snapshot.json"
+SNAPSHOT_INTERVAL_SECONDS = 600  # 10 minutes
 
 GRID_W = 120
 GRID_H = 80
@@ -208,6 +222,22 @@ COERCION_TRIBUTE_SHARE = 0.4       # share of each forage energy gain redirected
 COERCION_ESCAPE_CHANCE = 0.005     # small per-tick chance to break free even while the
                                      # controller is alive -- coercion is a standing risk, not
                                      # a guaranteed permanent lock
+# Follower tribute (see _tick's forage-tribute block, and FOLLOW STRONGER in decide()) -- the
+# material counterpart of FOLLOW STRONGER, which already has bonded residents physically
+# gravitate toward a more capable ally. Once a resident is bonded to a chief-standing ally
+# (Sahlins' Big Man, see Resident.chief_standing), a modest voluntary share of their own forage
+# surplus flows to that leader -- a real, if small, tribute economy, but built entirely from an
+# ordinary bond plus an existing status readout, not an authored "Follower" role. Deliberately
+# smaller than COERCION_TRIBUTE_SHARE: this is chosen support, not forced extraction, and
+# doesn't touch the chief's own energy_given_away (receiving tribute must not itself inflate
+# the redistribution-based standing that made them a chief in the first place).
+FOLLOWER_TRIBUTE_SHARE = 0.15
+# Leadership succession (see the death-check block in Simulation._tick) -- inherited capital,
+# not an inherited title (chief_standing itself can never be assigned, only earned by the
+# heir's own future behavior). Half, not all: real inheritance rarely transfers a decedent's
+# full estate to one heir cleanly, and this keeps the boost meaningful without being a full
+# free ride to chief_standing.
+HEIR_ENERGY_INHERITANCE = 0.5
 # Sex-based division of labor (see _do_forage) — females retain a real, if reduced, foraging
 # contribution rather than zero; see the note at the gain calculation for why zero failed.
 FEMALE_FORAGE_MULT = 0.7  # raised from 0.5 -- with instrumented testing showing the population's
@@ -438,6 +468,9 @@ ISLAND_TERRAIN = 'plains'  # fertile, full-regrow, low move-cost -- a deliberate
 BRIDGE_TERRAIN = 'plains'  # the single-row land crossing connecting the island to both
                             # mainlands (see _carve_river) -- same terrain as the island itself,
                             # just a narrow crossing, not a distinct terrain type
+ISLAND_FISH_RADIUS = 16    # cells (see Cell.near_island) -- a bit past the island's own
+                             # footprint (ISLAND_RADIUS_Y=10) so it covers the flanking river
+                             # channels too, not just the island's dry land
 
 SEASONS = ['spring', 'summer', 'autumn', 'winter']
 
@@ -471,6 +504,12 @@ TERRAIN_FARMING = {'plains': 1.0, 'river': 0.7, 'forest': 0.2}
 # formations, not arable land) — mountain terrain is the primary source, same physical-property
 # pattern as grazing/farming suitability above.
 TERRAIN_MINING = {'mountain': 1.0, 'desert': 0.4}
+# Fishing (see 'fishing' knowledge in _do_forage) -- any water tile is fishable, but coastal
+# water is the richest real fishery (river/lake fish density is real but far lower per unit
+# area), further boosted near the island (Cell.near_island, ISLAND_FISH_RADIUS) so it's a
+# genuinely distinct specialty rather than "farming, but for water tiles."
+TERRAIN_FISHING = {'river': 0.5, 'lake': 0.4, 'coast': 1.0}
+NEAR_ISLAND_FISHING_MULT = 2.5
 
 DOMESTICATION_DISCOVERY_CHANCE = 0.0025  # per qualifying forage tick, before suitability scaling
 # Not every wild variant a forager experiments with actually becomes a stable domesticate —
@@ -506,6 +545,20 @@ LIVESTOCK_ARCHETYPES = {
     'browser': {'energy_density_mult': 0.95, 'zone_weights': {'tropical': 2.0, 'temperate': 1.0, 'cold': 0.2}},
 }
 
+# Dietary diversity (see recent_food_types on Resident and _do_forage) -- real nutrition: a
+# calorie-sufficient but monotonous diet (one staple crop/livestock type over and over) is
+# missing nutrients a varied diet provides, and shows up as reduced foraging/working capacity,
+# not just an abstract stat. Modeled as a multiplier on the same forage `gain` calculation
+# every other bonus already goes through (sex_mult, ag_tech_mult, GIFTED_SCOUT_HUNT_BONUS),
+# not a new independent system -- a single-staple region isn't starved outright, it's capped
+# below what genuine variety would let it produce, which is what should eventually make trading
+# for a different staple (see the food-exchange/trade work planned next) a real, felt incentive
+# rather than a cosmetic option.
+DIET_DIVERSITY_WINDOW = 30          # ticks -- a food type eaten this recently still counts
+                                      # toward the diversity score
+DIET_DIVERSITY_MULT_MIN = 0.75      # one food type only, recently
+DIET_DIVERSITY_MULT_MAX = 1.3       # four or more distinct food types, recently
+
 # Mineral resources — non-food, tradeable/raidable goods rather than a caloric energy source.
 # Cold-zone-dominant real geology (coal seams, iron-bearing rock, oil deposits concentrate in
 # specific formations, not arable temperate/tropical land), discovered through the same
@@ -514,7 +567,17 @@ MINERAL_ARCHETYPES = {
     'coal':     {'zone_weights': {'cold': 3.0, 'temperate': 0.3, 'tropical': 0.0}},
     'iron_ore': {'zone_weights': {'cold': 2.0, 'temperate': 0.4, 'tropical': 0.0}},
     'oil':      {'zone_weights': {'cold': 1.5, 'temperate': 0.2, 'tropical': 0.0}},
+    # Salt has a huge temperate weight not because temperate land is generally salt-rich (it
+    # isn't -- TERRAIN_MINING gives 'plains'/'river' zero mining suitability), but because the
+    # island (see NEAR_ISLAND_MINING_SUITABILITY below) sits in the temperate band and is the
+    # only place in that band mining is viable at all -- this is what makes salt a de facto
+    # island-exclusive resource through the existing suitability mechanism, no special-cased
+    # location check needed.
+    'salt':     {'zone_weights': {'cold': 0.1, 'temperate': 5.0, 'tropical': 0.1}},
 }
+NEAR_ISLAND_MINING_SUITABILITY = 0.8  # lets salt-gathering happen on/around the island (see
+                                        # Cell.near_island) even on plains/river terrain that
+                                        # TERRAIN_MINING otherwise gives zero suitability
 MINING_DISCOVERY_CHANCE = 0.0025  # per qualifying forage tick, same order as DOMESTICATION_DISCOVERY_CHANCE
 MINING_YIELD_PER_TICK = 0.8       # base quantity added to a miner's stockpile per working tick
 CROP_SURPLUS_CONVERSION = 0.02    # kcal-of-excess-harvest -> tradeable crop-resource units
@@ -542,6 +605,13 @@ CROP_CULTIVATION_SKILL_BONUS = 90.0  # additional ceiling at full skill+suitabil
 ANIMAL_HUSBANDRY_BASE_BONUS = 20.0   # smaller than farming's -- herding is a real but secondary
                                        # economy alongside cultivation, not the primary lever
 ANIMAL_HUSBANDRY_SKILL_BONUS = 45.0  # (was 20.0)
+FISHING_BASE_BONUS = 25.0            # between farming's and husbandry's -- a real, secondary
+                                       # economy specific to water tiles, richest near the island
+FISHING_SKILL_BONUS = 60.0
+SALT_FOOD_BONUS_MULT = 1.2  # real historical role: salt is a preservative, not a calorie source
+                              # itself (see MINERAL_ARCHETYPES -- minerals stay non-food/tradeable)
+                              # -- holding any personally raises the effective value of food
+                              # foraged this tick, on top of (not instead of) dietary diversity
 IRRIGATION_DISCOVERY_CHANCE = 0.003    # per tick, requires crop_cultivation + water-adjacent cell
 IRRIGATION_MULT = 1.5
 BREEDING_DISCOVERY_CHANCE = 0.002      # per tick, requires deep crop_cultivation mastery
@@ -605,8 +675,17 @@ FIRE_NIGHT_REDUCTION = 0.4        # fire specifically offsets the amplified nigh
 # same transmission event, they combine using the standard redundant-channel formula
 # from reliability engineering: a message survives if AT LEAST ONE channel gets it through,
 # so combined_retention = 1 - product(1 - channel_i) over all available channels.
-FIDELITY_IMITATION = 0.30   # floor: watching + instinctive inheritance, no verbal exchange
-FIDELITY_ORAL = 0.60        # spoken language: explicit verbal teaching
+FIDELITY_IMITATION = 0.15   # floor: watching + instinctive inheritance, no verbal exchange --
+                              # lowered from 0.30 so language is a real, visible survival
+                              # advantage rather than a mild convenience: live data showed a
+                              # population of 2305 with only 7 language holders and 1 writing
+                              # holder still reaching ~80-90% adoption of basic survival
+                              # knowledge (fire/shelter/clothing) purely through imitation,
+                              # which made language nearly irrelevant to outcomes
+FIDELITY_ORAL = 0.85        # spoken language: explicit verbal teaching -- raised from 0.60,
+                              # widening the imitation/oral gap from 2x to ~5.7x so a
+                              # language-holding lineage should visibly out-learn an
+                              # imitation-only one instead of language being a cosmetic stat
 FIDELITY_WRITTEN = 0.95     # writing: symbolic external memory, near-lossless encoding
 
 # Spoken language is not a philosophical tool invented in a vacuum — it is a high-pressure
@@ -812,6 +891,11 @@ class Cell:
                                 # irrigation x selective breeding x fertilizer); never decreases once
                                 # achieved — technique embedded in a plot's practice doesn't un-happen,
                                 # even though the *land's* cultivation level can still lapse if untended
+    near_island: bool = False  # set once in _carve_river -- boosts fishing suitability on
+                                 # surrounding water and lets salt (see MINERAL_ARCHETYPES) be
+                                 # found here even off mountain/desert terrain, so the island has
+                                 # a real non-farming specialty rather than just being good
+                                 # farmland like the mainland
 
     def passable(self):
         return self.terrain != 'lake'
@@ -940,6 +1024,11 @@ class Resident:
     death_cause: Optional[str] = None
     children: int = 0
     food_total: float = 0.0
+    recent_food_types: dict = field(default_factory=dict)  # food_type -> last tick eaten (see
+                                        # DIET_DIVERSITY_* and _do_forage) -- bounded by
+                                        # construction to the fixed vocabulary of food types
+                                        # (crop/livestock archetypes + 'wild'/'fish'), so unlike
+                                        # self.residents this can never grow unboundedly
     skills: dict = field(default_factory=lambda: {'food_storage': 0.0})
     known_knowledge: dict = field(default_factory=lambda: {})  # knowledge_name -> {level, source, tick_learned}
     resources: dict = field(default_factory=lambda: {})  # resource_name (crop/mineral archetype) -> held quantity;
@@ -1230,6 +1319,48 @@ def _carve_river(grid):
             cell.water = bridge_props['water']
             cell.biomass_cap = bridge_props['cap']
             cell.biomass = bridge_props['cap'] * random.uniform(0.4, 0.7)
+
+    # near_island marking (see Cell.near_island, ISLAND_FISH_RADIUS, TERRAIN_FISHING) -- a
+    # simple bounding-box check, not exact distance, since this only needs to identify "close
+    # enough to the island to fish/gather salt here," not a precise radius.
+    for y in range(max(0, island_cy - ISLAND_FISH_RADIUS), min(GRID_H, island_cy + ISLAND_FISH_RADIUS + 1)):
+        for x in range(max(0, island_cx - ISLAND_FISH_RADIUS), min(GRID_W, island_cx + ISLAND_FISH_RADIUS + 1)):
+            if (x - island_cx) ** 2 + (y - island_cy) ** 2 <= ISLAND_FISH_RADIUS ** 2:
+                grid[y][x].near_island = True
+
+
+# ── Snapshot serialization (see SNAPSHOT_PATH) ──
+# Plain dataclasses.asdict() round-trips fine for saving (it recurses through nested
+# dataclasses/dicts/lists automatically), but loading needs explicit reconstruction: JSON has
+# no tuple type (scout_target) and always stringifies dict keys (bonds is keyed by int
+# resident id). Field lists are filtered against the CURRENT dataclass shape in both
+# directions so a snapshot survives the schema changing between save and load (a stale extra
+# key is dropped, a newly-added field just takes its dataclass default) -- this project's
+# fields change most sessions, unlike a stable save-file format.
+
+def _cell_to_dict(c):
+    return asdict(c)
+
+
+def _cell_from_dict(d):
+    valid = {f.name for f in fields(Cell)}
+    return Cell(**{k: v for k, v in d.items() if k in valid})
+
+
+def _resident_to_dict(r):
+    return asdict(r)
+
+
+def _resident_from_dict(d):
+    valid = {f.name for f in fields(Resident)}
+    d = {k: v for k, v in d.items() if k in valid}
+    trait_valid = {f.name for f in fields(Traits)}
+    d['traits'] = Traits(**{k: v for k, v in d['traits'].items() if k in trait_valid})
+    d['memory'] = [MemEntry(**m) for m in d.get('memory', [])]
+    d['bonds'] = {int(k): Bond(**v) for k, v in d.get('bonds', {}).items()}
+    if d.get('scout_target') is not None:
+        d['scout_target'] = tuple(d['scout_target'])
+    return Resident(**d)
 
 
 def _rand_name():
@@ -1554,7 +1685,15 @@ def decide(r, grid, residents, tick, pressure=0.0, buckets=None):
                                and (res.id not in r.bonds or r.bonds[res.id].quality <= 0)
                                and _relatedness(r, res) < 0.25]
         if strangers_adjacent and random.random() < OPPORTUNISTIC_RAID_CHANCE * r.traits.risk_tolerance:
-            candidate = max(strangers_adjacent, key=lambda x: x[0].energy)[0]
+            # Chiefly rivalry: chief_standing is a scarce, contested status (see
+            # FOLLOWER_TRIBUTE_SHARE) -- a chief targets a rival chief among the candidates
+            # first when one is present, rather than treating every stranger as interchangeable
+            # prey. Real Big Man societies show genuine rivalry between competing leaders, not
+            # peaceful indifference; this reuses the existing raid resolution, no new duel
+            # mechanic or authored rivalry object.
+            rival_chiefs = ([(res, d) for res, d in strangers_adjacent if res.has_chief_standing()]
+                             if r.has_chief_standing() else [])
+            candidate = max(rival_chiefs or strangers_adjacent, key=lambda x: x[0].energy)[0]
             if _capability(r) > _capability(candidate) * OPPORTUNISTIC_RAID_POWER_RATIO:
                 return ('raid', None, None, candidate.id)
 
@@ -1746,9 +1885,19 @@ def decide(r, grid, residents, tick, pressure=0.0, buckets=None):
             else:
                 partners = []
             if partners:
-                p = min(partners, key=lambda x: x[1])[0]
-                if abs(p.x - r.x) + abs(p.y - r.y) <= 1:
+                # Mate choice concentrating on higher-status partners is a legitimate emergent
+                # pattern (RFC-0011: "high-status male reproductive concentration"), not a
+                # privilege the engine grants -- chief_standing is itself a pure readout over
+                # each individual's own redistribution history. Only applied among candidates
+                # already adjacent (reproducible THIS tick), never as a reason to travel toward
+                # a distant "better" candidate re-picked fresh every tick -- that exact pattern
+                # (chasing a possibly-different target each tick, never closing the distance)
+                # is what collapsed the earlier reverted inbreeding-aware exogamy attempt.
+                adjacent_partners = [(res, d) for res, d in partners if d <= 1]
+                if adjacent_partners:
+                    p = max(adjacent_partners, key=lambda x: x[0].chief_standing())[0]
                     return ('reproduce', None, None, p.id)
+                p = min(partners, key=lambda x: x[1])[0]
                 return _step_toward(r.x, r.y, p.x, p.y, grid)
 
     # MATE PROVISIONING — a male with real surplus checks on a bonded female partner
@@ -1887,6 +2036,12 @@ def _do_forage(r, grid, tick, same_cell_residents=None):
     farm_suit = TERRAIN_FARMING.get(cell.terrain, 0) * zone_cfg['farming_suitability']
     graze_suit = TERRAIN_GRAZING.get(cell.terrain, 0) * zone_cfg['grazing_suitability']
     mine_suit = TERRAIN_MINING.get(cell.terrain, 0) * zone_cfg['mining_suitability']
+    if cell.near_island:
+        mine_suit = max(mine_suit, NEAR_ISLAND_MINING_SUITABILITY)
+    # Fishing (see TERRAIN_FISHING) isn't zone-gated like farming/grazing/mining -- real
+    # fisheries exist in cold, temperate, and tropical water alike, so suitability is purely
+    # terrain (is this water, and how good a fishery is it) plus the island proximity bonus.
+    fish_suit = TERRAIN_FISHING.get(cell.terrain, 0) * (NEAR_ISLAND_FISHING_MULT if cell.near_island else 1.0)
 
     # Trying a wild variant is one roll; whether it actually becomes a stable domesticate
     # is a second, independent roll (DOMESTICATION_SUCCESS_CHANCE) — most experiments with
@@ -1919,6 +2074,13 @@ def _do_forage(r, grid, tick, same_cell_residents=None):
                 'crop_type': mineral_type,
             })
             discovery_msg = f'{r.name} discovered how to mine {mineral_type}'
+    if fish_suit > 0 and 'fishing' not in r.known_knowledge:
+        if random.random() < DOMESTICATION_DISCOVERY_CHANCE * fish_suit:
+            if random.random() < DOMESTICATION_SUCCESS_CHANCE:
+                _learn_knowledge(r, 'fishing', {
+                    'level': 0.15, 'source': 'experimented_with_fishing', 'tick_learned': tick,
+                })
+                discovery_msg = f'{r.name} learned to fish'
 
     # Agricultural technology ladder — irrigation, selective breeding, fertilizer/pesticides.
     # Each is an independent Experiment-pathway discovery gated on a real prerequisite:
@@ -1972,6 +2134,12 @@ def _do_forage(r, grid, tick, same_cell_residents=None):
         if tier_skill in r.known_knowledge and random.random() < 0.025:
             _reinforce_knowledge(r, tier_skill, 0.02)
 
+    # Fishing — a food source like farming/herding (see FISHING_BASE_BONUS/SKILL_BONUS in the
+    # harvest conversion below), not a stockpile like mining; no cultivation bump since there's
+    # no land to tend, just skill deepening through practice.
+    if fish_suit > 0 and 'fishing' in r.known_knowledge and random.random() < 0.03:
+        _reinforce_knowledge(r, 'fishing', 0.02)
+
     # Mining — extraction adds directly to the miner's personal resource stockpile rather
     # than energy; minerals are goods to trade or have raided, not food.
     if mine_suit > 0 and 'mining' in r.known_knowledge:
@@ -2011,6 +2179,8 @@ def _do_forage(r, grid, tick, same_cell_residents=None):
             conversion += CROP_CULTIVATION_BASE_BONUS + r.skills.get('crop_cultivation', 0) / 100.0 * farm_suit * CROP_CULTIVATION_SKILL_BONUS
         if graze_suit > 0 and 'animal_husbandry' in r.known_knowledge:
             conversion += ANIMAL_HUSBANDRY_BASE_BONUS + r.skills.get('animal_husbandry', 0) / 100.0 * graze_suit * ANIMAL_HUSBANDRY_SKILL_BONUS
+        if fish_suit > 0 and 'fishing' in r.known_knowledge:
+            conversion += FISHING_BASE_BONUS + r.skills.get('fishing', 0) / 100.0 * fish_suit * FISHING_SKILL_BONUS
         # Sex-based division of labor: reproduction/childcare responsibilities reduce, but
         # do not zero out, a female's foraging output — real hunter-gatherer ethnography
         # (e.g. Hadza gathering studies) shows women's gathering reliably contributes a
@@ -2033,7 +2203,24 @@ def _do_forage(r, grid, tick, same_cell_residents=None):
         # zone-independent flat bonus.
         if r.is_gifted_scout() and cell.climate in ('cold', 'tropical'):
             sex_mult *= GIFTED_SCOUT_HUNT_BONUS
-        gain = harvest * conversion * sex_mult
+
+        # Dietary diversity (see DIET_DIVERSITY_* constants) -- what was actually eaten this
+        # tick, not just how much: a farmer eats their own crop, a herder their own livestock,
+        # a fisher their catch, anyone else eats whatever wild biomass was on hand.
+        if farm_suit > 0 and 'crop_cultivation' in r.known_knowledge:
+            food_type = r.known_knowledge['crop_cultivation'].get('crop_type', 'wild')
+        elif graze_suit > 0 and 'animal_husbandry' in r.known_knowledge:
+            food_type = r.known_knowledge['animal_husbandry'].get('crop_type', 'wild')
+        elif fish_suit > 0 and 'fishing' in r.known_knowledge:
+            food_type = 'fish'
+        else:
+            food_type = 'wild'
+        r.recent_food_types[food_type] = tick
+        distinct_recent = sum(1 for last in r.recent_food_types.values() if tick - last <= DIET_DIVERSITY_WINDOW)
+        diet_mult = DIET_DIVERSITY_MULT_MIN + (DIET_DIVERSITY_MULT_MAX - DIET_DIVERSITY_MULT_MIN) * min(1.0, (distinct_recent - 1) / 3.0)
+
+        salt_mult = SALT_FOOD_BONUS_MULT if r.resources.get('salt', 0) > 0 else 1.0
+        gain = harvest * conversion * sex_mult * diet_mult * salt_mult
         pre_cap_energy = r.energy + gain - effort
         r.energy = min(MAX_ENERGY, pre_cap_energy)
         r.food_total += harvest
@@ -2385,6 +2572,7 @@ class Simulation:
         self._next_id = 0
         self._state_cache = None
         self._state_cache_time = 0.0
+        self._last_snapshot_time = time.time()  # see save_snapshot/SNAPSHOT_INTERVAL_SECONDS
 
         self.ai = AIEngine()
 
@@ -2422,6 +2610,77 @@ class Simulation:
             for m, f in zip(males, females):
                 m.bonds[f.id] = Bond(f.id, 0.3, 0)
                 f.bonds[m.id] = Bond(m.id, 0.3, 0)
+
+    @classmethod
+    def load_or_create(cls, snapshot_path=None, seed=None):
+        """Entry point server.py uses instead of Simulation() directly -- loads persisted
+        state if a valid snapshot exists (see SNAPSHOT_PATH), otherwise falls back to a fresh
+        simulation exactly as before. Any failure to load (missing file, corrupt JSON, a
+        schema change too large for _resident_from_dict/_cell_from_dict's best-effort
+        compatibility layer to bridge) falls through to a fresh start rather than crashing the
+        server -- a snapshot is an optimization, never a hard requirement to boot."""
+        path = Path(snapshot_path) if snapshot_path else SNAPSHOT_PATH
+        if path.exists():
+            try:
+                return cls._load_snapshot(path)
+            except Exception:
+                pass
+        return cls(seed=seed)
+
+    @classmethod
+    def _load_snapshot(cls, path):
+        with open(path) as f:
+            data = json.load(f)
+        sim = cls.__new__(cls)
+        sim.seed = data['seed']
+        sim.grid = [[_cell_from_dict(cd) for cd in row] for row in data['grid']]
+        # Only ever-living residents are persisted (see save_snapshot) -- dead residents are
+        # not behaviorally relevant going forward (nothing in the hot path looks up a dead
+        # ancestor's Resident object, only the mother_id/father_id ints already stored on their
+        # children), and re-seeding self.residents with just the living population on load is
+        # exactly the fix for the same unbounded-growth bug this session already found and
+        # fixed in the live tick loop (see the O(n) resident-list scan writeup).
+        sim.residents = [_resident_from_dict(rd) for rd in data['residents']]
+        sim.tick_count = data['tick_count']
+        sim.events = []
+        sim.all_events = data.get('all_events', [])
+        sim.metrics_history = data.get('metrics_history', [])
+        sim.running = False  # never auto-resume ticking on load -- a fresh Simulation() also
+                               # starts paused; the operator/frontend calls /api/start explicitly
+        sim.speed = data.get('speed', 5)
+        sim.total_births = data.get('total_births', 0)
+        sim.total_deaths = data.get('total_deaths', 0)
+        sim.lock = threading.Lock()
+        sim._next_id = data.get('next_id', max((r.id for r in sim.residents), default=0))
+        sim._state_cache = None
+        sim._state_cache_time = 0.0
+        sim._last_snapshot_time = time.time()
+        sim.ai = AIEngine()
+        return sim
+
+    def save_snapshot(self, path=None):
+        path = Path(path) if path else SNAPSHOT_PATH
+        with self.lock:
+            living = [r for r in self.residents if r.alive]
+            data = {
+                'seed': self.seed,
+                'tick_count': self.tick_count,
+                'total_births': self.total_births,
+                'total_deaths': self.total_deaths,
+                'next_id': self._next_id,
+                'speed': self.speed,
+                'grid': [[_cell_to_dict(c) for c in row] for row in self.grid],
+                'residents': [_resident_to_dict(r) for r in living],
+                'metrics_history': list(self.metrics_history),
+                'all_events': list(self.all_events),
+            }
+        # Write to a temp file and atomically rename over the real path (os.replace is atomic
+        # on POSIX) -- a crash or kill mid-write must never leave a half-written snapshot as
+        # the file load_or_create finds on next startup.
+        tmp_path = str(path) + '.tmp'
+        with open(tmp_path, 'w') as f:
+            json.dump(data, f)
+        os.replace(tmp_path, path)
 
     def tick(self):
         with self.lock:
@@ -2787,6 +3046,40 @@ class Simulation:
                     other = residents_by_id.get(r.spouse_id)
                     if other is not None:
                         other.spouse_id = None
+
+                # Leadership succession — see HEIR_ENERGY_INHERITANCE. A dead chief's standing
+                # itself can't be handed to anyone (chief_standing stays a pure readout over
+                # the HEIR's own future redistribution behavior, never assigned by the engine —
+                # RFC-0007 forbids granting a capability/status an individual didn't earn
+                # themselves), but their accumulated resources, some remaining energy, and their
+                # follower network are real inheritable capital that gives the heir a genuine
+                # head start toward earning chief_standing in their own right. Heir preference:
+                # the most capable gifted scout among the dead chief's own followers (bonded,
+                # alive), falling back to the eldest living son.
+                if r.has_chief_standing():
+                    followers = [residents_by_id.get(bid) for bid, bond in r.bonds.items() if bond.quality > 0]
+                    followers = [f for f in followers if f is not None and f.alive]
+                    heir_candidates = [f for f in followers if f.is_gifted_scout()]
+                    heir = max(heir_candidates, key=_capability) if heir_candidates else None
+                    if heir is None:
+                        sons = [f for f in living if f.sex == 'male' and (f.mother_id == r.id or f.father_id == r.id)]
+                        heir = max(sons, key=lambda s: s.age) if sons else None
+                    if heir is not None:
+                        for good, amount in r.resources.items():
+                            heir.resources[good] = heir.resources.get(good, 0.0) + amount
+                        heir.energy = min(MAX_ENERGY, heir.energy + r.energy * HEIR_ENERGY_INHERITANCE)
+                        for f in followers:
+                            if f.id == heir.id:
+                                continue
+                            old_quality = f.bonds[r.id].quality
+                            if f.id not in heir.bonds or heir.bonds[f.id].quality < old_quality:
+                                heir.bonds[f.id] = Bond(f.id, old_quality, tick)
+                            if heir.id not in f.bonds or f.bonds[heir.id].quality < old_quality:
+                                f.bonds[heir.id] = Bond(heir.id, old_quality, tick)
+                        evts.append({'tick': tick, 'type': 'succession',
+                                     'text': f'{heir.name} inherits {r.name}\'s standing and followers',
+                                     'x': heir.x, 'y': heir.y})
+
                 evts.append({'tick': tick, 'type': 'death',
                              'text': f'{r.name} died ({cause}, age {r.age}, gen {r.generation})',
                              'x': r.x, 'y': r.y})
@@ -2842,6 +3135,23 @@ class Simulation:
                     tribute = (r.energy - _energy_before_action) * COERCION_TRIBUTE_SHARE
                     r.energy -= tribute
                     controller.energy = min(MAX_ENERGY, controller.energy + tribute)
+
+            # Follower tribute — see FOLLOWER_TRIBUTE_SHARE. Voluntary counterpart of coercion
+            # tribute: a resident bonded to a chief-standing ally redirects a modest share of
+            # their own forage surplus to that leader. Doesn't touch the chief's own
+            # energy_given_away (see FOLLOWER_TRIBUTE_SHARE's comment).
+            elif action == 'forage' and r.coerced_by is None and r.energy > _energy_before_action:
+                chief_ally = None
+                for bid, bond in r.bonds.items():
+                    if bond.quality > 0:
+                        candidate = residents_by_id.get(bid)
+                        if candidate is not None and candidate.alive and candidate.has_chief_standing():
+                            chief_ally = candidate
+                            break
+                if chief_ally is not None:
+                    tribute = (r.energy - _energy_before_action) * FOLLOWER_TRIBUTE_SHARE
+                    r.energy -= tribute
+                    chief_ally.energy = min(MAX_ENERGY, chief_ally.energy + tribute)
 
             _action_delta = r.energy - _energy_before_action
             if _action_delta >= 0:
@@ -2942,6 +3252,7 @@ class Simulation:
 
         farmer_holders = sum(1 for r in living if 'crop_cultivation' in r.known_knowledge)
         herder_holders = sum(1 for r in living if 'animal_husbandry' in r.known_knowledge)
+        fisher_holders = sum(1 for r in living if 'fishing' in r.known_knowledge)
         avg_farm_skill = 0.0
         if farmer_holders > 0:
             avg_farm_skill = sum(r.skills.get('crop_cultivation', 0) for r in living if 'crop_cultivation' in r.known_knowledge) / farmer_holders
@@ -3020,6 +3331,7 @@ class Simulation:
             'avg_farm_skill': round(avg_farm_skill, 1),
             'herder_holders': herder_holders,
             'avg_herd_skill': round(avg_herd_skill, 1),
+            'fisher_holders': fisher_holders,
             'cultivated_cells': cultivated_cells,
             'language_holders': language_holders,
             'writing_holders': writing_holders,
@@ -3027,6 +3339,9 @@ class Simulation:
             'priest_holders': priest_holders,
             'gifted_scout_count': gifted_scout_count,
             'coerced_count': sum(1 for r in living if r.coerced_by is not None),
+            'avg_diet_diversity': round(sum(
+                sum(1 for last in r.recent_food_types.values() if tick - last <= DIET_DIVERSITY_WINDOW)
+                for r in living) / max(1, n), 3),
             'group_count': group_count,
             'largest_group_size': largest_group_size,
             'shelter_holders': shelter_holders,
@@ -3096,6 +3411,8 @@ class Simulation:
                 'inbreeding_load': round(r.inbreeding_load, 3),
                 'is_gifted_scout': r.is_gifted_scout(), 'scout_target': r.scout_target,
                 'coerced_by': r.coerced_by,
+                'diet_diversity': sum(1 for last in r.recent_food_types.values()
+                                       if self.tick_count - last <= DIET_DIVERSITY_WINDOW),
                 'str': round(r.traits.strength, 2),
                 'spd': round(r.traits.speed, 2),
                 'per': round(r.traits.perception, 2),
@@ -3158,4 +3475,10 @@ class Simulation:
             if living == 0:
                 self.running = False
                 break
+            if time.time() - self._last_snapshot_time > SNAPSHOT_INTERVAL_SECONDS:
+                self._last_snapshot_time = time.time()
+                try:
+                    self.save_snapshot()
+                except Exception:
+                    pass  # a failed snapshot write must never take down the live tick loop
             time.sleep(1.0 / self.speed)

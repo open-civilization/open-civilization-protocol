@@ -207,6 +207,22 @@ def check_trigger(resident, nearby_residents, grid, tick):
                                      "Stories get told wrong. You wonder if marks on stone or wood could "
                                      "hold what memory loses.")
 
+    # Trigger 5: strategic council — only ever reached for gifted scouts (see AIEngine.process_tick's
+    # is_gifted_scout() gate, RFC-0004: this is a consequence of an existing rare trait
+    # combination, not a new authored "leader" role). Ordinary residents never see this
+    # question at all; their raid/migrate/trade choices stay fully rule-based (decide()).
+    # A richer, harder decision than the flavor triggers above, matching a scout's wider
+    # perception and actual influence over bonded followers (FISSION/FOLLOW STRONGER).
+    if r.energy > 1400 and r.age > 15 and random.random() < 0.12:
+        raidable = [nr for nr, d in nearby_residents if d <= 2 and nr.energy > 900 and nr.id not in r.bonds]
+        weak_food = here.biomass < 10
+        return 'strategic', (
+            f"You see further and think more clearly than most. Local food here is "
+            f"{'scarce' if weak_food else 'adequate'}. "
+            + (f"A stranger with real supplies is within striking distance. " if raidable else "")
+            + "People around you may follow your lead."
+        )
+
     return None, None
 
 
@@ -270,6 +286,19 @@ Situation: {trigger_text}
     if trigger_type == 'cultural_writing':
         return header + "\nInvent ONE simple mark or symbol you could scratch or draw to represent something important. Reply in under 20 words: describe the mark and what it stands for."
 
+    if trigger_type == 'strategic':
+        # Harder, higher-stakes menu — only ever reached for gifted scouts (see check_trigger's
+        # Trigger 5). raid/migrate/trade map to real engine actions (see parse_response); crop
+        # choice and "press the advantage" (raiding harder/further, the closest analogue to
+        # "war" this engine actually models — see RFC-0007's ban on scripted wars) are read as
+        # reasoning/flavor for now, not yet wired to a mechanical override.
+        return header + (
+            "\nWeigh your options: raid the stranger nearby, migrate toward better land, "
+            "approach someone to trade, favor a different staple crop if you ever take up farming, "
+            "or press your advantage further if you're already strong here. Or simply continue as "
+            "you have been.\nPick ONE course and explain in under 30 words."
+        )
+
     return header + "\nWhat do you do? Pick ONE: move, forage, rest, approach someone, share food, or explore a new direction.\nReply in under 30 words with your action and a short reason."
 
 
@@ -280,11 +309,26 @@ def parse_response(text, nearby_residents):
         return None
     t = text.lower()
 
+    # Checked first — 'raid'/'attack'/'seize' shouldn't ever be caught by forage's 'hunt' or
+    # interact's 'approach' below. Only ever reachable via the 'strategic' trigger (gifted
+    # scouts, see check_trigger) since no other prompt ever suggests raiding as an option.
+    # Needs an adjacent target the engine's own raid resolution (_do_raid) can actually
+    # resolve, same as the fast tier's own raid targeting -- picks the nearest candidate
+    # rather than trusting the model to have named a real, currently-adjacent resident.
+    if any(w in t for w in ('raid', 'attack', 'steal', 'seize', 'press', 'advantage')):
+        adjacent = [nr for nr, d in nearby_residents if d <= 1]
+        if adjacent:
+            return ('raid', None, None, adjacent[0].id)
+
     if any(w in t for w in ('forage', 'gather', 'eat', 'hunt', 'fish')):
         return ('forage', None, None, None)
 
     if any(w in t for w in ('rest', 'sleep', 'recover', 'heal')):
         return ('rest', None, None, None)
+
+    if any(w in t for w in ('trade', 'exchange', 'barter')):
+        if nearby_residents:
+            return ('interact', None, None, nearby_residents[0][0].id)
 
     if any(w in t for w in ('share', 'give', 'offer', 'help')):
         if nearby_residents:
@@ -366,7 +410,16 @@ class AIEngine:
         season_tick = tick % 25  # reset budget each season
 
         calls_this_tick = 0
-        living = [r for r in residents if r.alive]
+        # Only gifted scouts (see Resident.is_gifted_scout, RFC-0004: an emergent consequence
+        # of an existing rare trait combination, not a new authored "leader" role) are ever
+        # eligible for a slow-tier AI call -- ordinary residents run entirely on the fast,
+        # rule-based decide() tier (with its own extensive random.random() gates throughout:
+        # raid/migration/fission chances, mutation, trait variance) and never reach this path
+        # at all. This is also what makes the 'strategic' trigger's harder menu (raid/migrate/
+        # trade, see check_trigger/build_prompt) appropriate -- it's asked only of individuals
+        # whose perception/capability the engine already treats as exceptional, matching their
+        # real influence over bonded followers (FISSION/FOLLOW STRONGER).
+        living = [r for r in residents if r.alive and r.is_gifted_scout()]
         random.shuffle(living)
 
         for r in living:

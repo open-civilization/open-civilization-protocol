@@ -114,6 +114,20 @@ The slow tier MUST NOT be invoked for:
 - repetition of previously resolved decisions in unchanged conditions
 - any situation the fast tier already handles adequately
 
+#### Eligibility, Not Just Triggers
+
+Implemented restriction (`AIEngine.process_tick`): the slow tier is only ever offered to
+residents whose `is_gifted_scout()` reads true (the same rare, purely trait-combination-derived
+individuals used elsewhere for wider perception and informal leadership — see RFC-0004). This
+is a budget/realism decision, not a new capability grant: an ordinary resident is not worse at
+thinking, they simply never reach a decision complex enough to leave the fast tier's rules
+insufficient, mirroring the RFC's own framing above ("any situation the fast tier already
+handles adequately"). For gifted scouts specifically, the trigger set also includes a harder
+`'strategic'` question (raid a nearby stranger, migrate, trade, favor a different staple crop,
+press an existing advantage, or continue as normal) — reasoning about crop choice and "pressing
+an advantage" is currently read back as flavor/event-log narration only, not yet wired to a
+mechanical override; raid/migrate/trade choices do map to real engine actions.
+
 ### Budget Enforcement
 
 - Each resident MUST have a per-day (or per-N-ticks) LLM invocation budget.
