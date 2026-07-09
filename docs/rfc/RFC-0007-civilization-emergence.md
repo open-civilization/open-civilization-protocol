@@ -233,6 +233,23 @@ The engine SHOULD be able to detect (but MUST NOT create) the following structur
 - emergence of preferred exchange routes
 - specialization creating mutual dependency between groups
 
+Stage 1 implemented, individual-level building block: `carrying_capacity` (see RFC-0004) is a
+9th heritable trait, mean 10, with occasional individuals well past the `MERCHANT_CAPACITY_
+THRESHOLD=40` cutoff that `is_merchant()` reads off it — no authored "Merchant" role, same
+threshold-readout pattern as `is_gifted_scout()`. A real cap on total personal resource holdings
+(`_add_resource`, replacing the previously-unbounded `r.resources[x] += y` pattern at every
+accumulation site: mining, crop surplus, gift-receiving, raid loot, inheritance) makes the trait
+mean something economically, and merchants get wider perception (`MERCHANT_CELL_CAP`, matching
+the gifted-scout perception boost) so they can actually see the surrounding scarcity/surplus
+pattern the trait's own flavor text describes. Deliberately scoped to Stage 1 only: a merchant
+still only ever acts on an already-adjacent trade partner via the existing `_maybe_trade`/SOCIAL
+block (with `is_merchant` added as its own trigger condition alongside diet-driven contact,
+see below) — no long-distance travel-to-market or price-arbitrage behavior yet. That "Stage 2"
+vision (seek out and travel toward a specific distant settlement with a specific known deficit)
+is explicitly deferred, since it's exactly the persistent-distant-target shape that collapsed
+the territorial-retreat and exogamy attempts (see Hierarchies below) — it would need the same
+committed-target persistence mechanism as `scout_target`/FISSION before it's safe to try.
+
 ### Hierarchies
 
 - some residents consistently influencing others' behavior
@@ -266,7 +283,38 @@ engine):
   desperation to fire at all, which live data showed drops to ~zero once a population is
   well-fed. A second, independent trigger lets a comfortable, decisively stronger resident raid
   a weaker nearby stranger purely because the power gap is profitable — still Hamilton's-rule
-  stranger-preferring, still `_capability`-gated, no authored war object.
+  stranger-preferring, still `_capability`-gated, no authored war object. Its raid chance now
+  also scales with `payoff_ratio` (candidate energy relative to the raider's own) rather than
+  firing at a flat rate once the power-gap gate is cleared, so a barely-worthwhile target and an
+  obviously lucrative one aren't raided equally often.
+- **Real group membership, not just pairwise bonds, for "who counts as a stranger"**: live
+  observation showed raid frequency was far lower than the pressure/capability math implied,
+  because the original stranger check (`no bond OR low relatedness`) missed residents who'd
+  drifted into the same physically-cohering settlement without ever forming a *direct* bond with
+  a given individual — they'd read as strangers to each other despite functionally belonging to
+  the same group. `_tick`'s existing periodic union-find over the bond graph (already computing
+  `group_count`, see below) now also stores each resident's connected-component root
+  (`self._group_root`); `_is_outsider(r, res, group_root)` checks same-root membership when both
+  residents are in that index (falling back to the original bond/relatedness heuristic
+  otherwise) and is now the shared stranger-detection used by opportunistic raiding, desperation
+  raiding, territorial defense, and nomadic winter raiding — a real definition of "us" grounded
+  in the actual social graph, not a per-pair fiction. Pure detection over data the engine already
+  computes; nothing about group membership is authored or assigned.
+- **Territorial defense**: a resident whose home area is cultivated (`cultivated_land`, a
+  side-effect of crop farming already tracked per cell) fights a nearby outsider who encroaches
+  on it, gated on real local dominance (`TERRITORIAL_DEFENSE_POWER_RATIO`) rather than
+  desperation — defending a farmed investment is a different motive than raiding for food, and
+  produces a distinct message (`fought ... over cultivated land`) rather than reusing the raid
+  event type. Same non-negotiable constraint as everything else here: acts only on an
+  already-adjacent outsider, never travels toward one.
+- **Nomadic winter raid**: since `animal_husbandry` is now cold-zone-exclusive (RFC-0003's zone
+  exclusivity), simply knowing it proves pastoral origin. A herder in `winter` who has migrated
+  out of the cold zone (see the existing `MIGRATE (winter)` behavior) but is currently
+  comfortable (`r.energy > 900`, i.e. not desperate) raids a nearby outsider more readily than
+  the baseline case, echoing real Eurasian-steppe winter-incursion patterns (Mongol, Hunnic,
+  Scythian). Nothing coordinates a "raiding party" — when many individually-migrating herders
+  share the disposition and land in the same winter refuge, the aggregate reads as a coordinated
+  raid, but each resident's decision is independent and local.
 
 **Attempted and reverted** (see Collapse and Regression): a Hawk-Dove/Bourgeois "territorial
 retreat" mechanic (individually flee a local area once nearby strangers are decisively stronger

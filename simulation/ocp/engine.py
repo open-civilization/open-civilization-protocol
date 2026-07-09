@@ -200,8 +200,22 @@ INBREEDING_LOAD_CAP = 1.0          # every penalty above is calibrated against "
 OPPORTUNISTIC_RAID_ENERGY_MIN = 1400.0  # raider needs real comfort/surplus -- this is a
                                           # profit-seeking choice, not another desperation valve
 OPPORTUNISTIC_RAID_POWER_RATIO = 1.5    # must be clearly the stronger party, not just willing
-OPPORTUNISTIC_RAID_CHANCE = 0.08        # scaled further by risk_tolerance in decide() -- rare
-                                          # and opportunistic, not a routine action
+OPPORTUNISTIC_RAID_CHANCE = 0.08        # scaled further by risk_tolerance AND the payoff_ratio
+                                          # (see decide()) -- rare and opportunistic, not routine
+# Territorial defense (see TERRITORIAL DEFENSE in decide()) -- a chief-only raid trigger against
+# a nearby resource-competing stranger (someone farming/herding right next door, not trading),
+# independent of OPPORTUNISTIC_RAID's profit-driven gate. Lower power bar than
+# OPPORTUNISTIC_RAID_POWER_RATIO -- a chief defending a resource base takes more risk than an
+# opportunistic profiteer would.
+TERRITORIAL_DEFENSE_CHANCE = 0.15
+TERRITORIAL_DEFENSE_POWER_RATIO = 1.2
+# Nomadic winter raid (see NOMADIC WINTER RAID in decide()) -- displaced cold-zone pastoralists
+# (proven by knowing animal_husbandry, now cold-zone-exclusive) raiding agricultural outsiders
+# during winter. Real historical pattern (Mongol/Hunnic/Scythian-style incursions), higher
+# chance and lower power bar than ordinary OPPORTUNISTIC_RAID -- a herder whose own pastures
+# just failed for the season has more at stake than an ordinary opportunist.
+NOMADIC_WINTER_RAID_CHANCE = 0.2
+NOMADIC_WINTER_RAID_POWER_RATIO = 1.1
 # Coercion (see coerced_by on Resident, _do_raid's win branch, and _tick's forage-tribute
 # block) — population as a resource, RFC-0007 compliant: this is a per-individual relationship
 # field like spouse_id/bonds, not an authored "Slave" class or group object. An overwhelming
@@ -297,6 +311,9 @@ GIFTED_SCOUT_TRAIT_THRESHOLD = 1.15  # calibrated live: at 1.3, ~0/1000 populati
 GIFTED_SCOUT_CELL_CAP = 30           # expanded terrain-scan radius, vs PERCEPTION_CELL_CAP for
                                        # everyone else -- rare enough this doesn't reintroduce
                                        # the performance problem that cap was fixing
+MERCHANT_CELL_CAP = 40               # see Resident.is_merchant -- "sees ten times further" (vs
+                                       # PERCEPTION_CELL_CAP=4), same rarity-based performance
+                                       # reasoning as GIFTED_SCOUT_CELL_CAP above
 GIFTED_SCOUT_SEARCH_RADIUS = 12      # wider _find_fission_target sampling radius for scouts
 GIFTED_SCOUT_HUNT_BONUS = 1.4        # forage output multiplier in cold/tropical zones (low
                                        # farming suitability, where hunting/gathering skill
@@ -399,6 +416,11 @@ INFANT_MORTALITY_CHANCE = 0.025
 CONFLICT_CHANCE = 0.18
 CONFLICT_DMG_MIN = 5
 CONFLICT_DMG_MAX = 25
+CULTIVATED_LAND_CONFLICT_THRESHOLD = 0.3  # see the cultivation-driven branch of _do_forage's
+                                            # resource-conflict block -- real investment in a
+                                            # plot (not just any nonzero cultivation), so a first
+                                            # visit before the land is actually developed doesn't
+                                            # already count as trespassing
 TERRAIN_HAZARD = {'mountain': 0.06, 'river': 0.04, 'desert': 0.04, 'coast': 0.01}
 HAZARD_DMG_MIN = 5
 HAZARD_DMG_MAX = 20
@@ -483,13 +505,28 @@ SEASONS = ['spring', 'summer', 'autumn', 'winter']
 # fields above, which govern food regrowth, not personal metabolism). Non-winter multipliers
 # stay close to 1.0 — mild, physically-motivated variation — so the extensively-tuned baseline
 # survivability is preserved; winter carries the dominant seasonal cost as before.
+# Zone specialization: cold is grazing-dominant, temperate is farming-only (grazing_suitability
+# 0.0 there, no exception) -- a real economic reason for exchange to matter, not just "one is
+# better at X". A small (0.15) farming fallback for the cold zone was tried, on the theory that
+# the fully farming-free version (0.0) was creating a bootstrapping trap (near-zero winter
+# regrow + 2.8x winter upkeep meant nobody survived long enough to ever discover
+# animal_husbandry). Reverted: 3-seed local comparison showed farming_suitability=0.15
+# consistently produced LOWER total population than 0.0 (652/224/991 vs 787/706/1129 across
+# seeds 1-3) -- domestication discovery for crop_cultivation and animal_husbandry are
+# independent random rolls, and cold-zone crops are the two weakest archetypes in
+# CROP_ARCHETYPES (sweet_potato/corn, ~0.55-0.6x energy density vs wheat's 1.4x), so a cold-zone
+# resident unlucky enough to roll the farming discovery first likely burns a knowledge-capacity
+# slot and effort on a genuinely weak option instead of the much more valuable herding path --
+# worse than having no fallback at all, not better. The actual bottleneck (survival to ever
+# attempt animal_husbandry discovery) needs a different fix, e.g. softening winter's regrow/
+# upkeep multipliers directly, not adding a competing weaker discovery path.
 CLIMATE_ZONES = {
     'cold':      {'spring': 1.1, 'summer': 0.8, 'autumn': 0.35, 'winter': 0.005,
                   'spring_upkeep': 0.95, 'summer_upkeep': 1.0, 'autumn_upkeep': 1.1, 'winter_upkeep': 2.8,
-                  'grazing_suitability': 1.0, 'farming_suitability': 0.1, 'mining_suitability': 1.0},
+                  'grazing_suitability': 1.0, 'farming_suitability': 0.0, 'mining_suitability': 1.0},
     'temperate': {'spring': 1.4, 'summer': 1.0, 'autumn': 0.55, 'winter': 0.02,
                   'spring_upkeep': 0.9, 'summer_upkeep': 1.0, 'autumn_upkeep': 1.05, 'winter_upkeep': 1.8,
-                  'grazing_suitability': 0.25, 'farming_suitability': 1.0, 'mining_suitability': 0.3},
+                  'grazing_suitability': 0.0, 'farming_suitability': 1.0, 'mining_suitability': 0.3},
     'tropical':  {'spring': 1.2, 'summer': 1.0, 'autumn': 0.75, 'winter': 0.05,
                   'spring_upkeep': 0.9, 'summer_upkeep': 1.05, 'autumn_upkeep': 1.0, 'winter_upkeep': 1.3,
                   'grazing_suitability': 0.0, 'farming_suitability': 0.0, 'mining_suitability': 0.0},
@@ -512,6 +549,14 @@ TERRAIN_FISHING = {'river': 0.5, 'lake': 0.4, 'coast': 1.0}
 NEAR_ISLAND_FISHING_MULT = 2.5
 
 DOMESTICATION_DISCOVERY_CHANCE = 0.0025  # per qualifying forage tick, before suitability scaling
+HUSBANDRY_DISCOVERY_MULT = 3.0  # animal_husbandry-specific multiplier on top of the shared
+                                  # DOMESTICATION_DISCOVERY_CHANCE above (crop_cultivation/fishing
+                                  # discovery are unaffected) -- the cold zone is now
+                                  # grazing-only (see CLIMATE_ZONES) with a brutal winter
+                                  # (regrow ~0, upkeep 2.8x), so almost nobody was surviving
+                                  # long enough to stumble into the herding knowledge that would
+                                  # actually let them survive it: a bootstrapping trap, not a
+                                  # matter of the population lacking some "nomadic" trait.
 # Not every wild variant a forager experiments with actually becomes a stable domesticate —
 # most real domestication attempts throughout history failed (of the world's ~200,000 plant
 # species, only a few hundred were ever domesticated). A discovery "hit" above represents
@@ -556,8 +601,23 @@ LIVESTOCK_ARCHETYPES = {
 # rather than a cosmetic option.
 DIET_DIVERSITY_WINDOW = 30          # ticks -- a food type eaten this recently still counts
                                       # toward the diversity score
-DIET_DIVERSITY_MULT_MIN = 0.75      # one food type only, recently
-DIET_DIVERSITY_MULT_MAX = 1.3       # four or more distinct food types, recently
+# Three real food categories -- crop, meat, fish (salt is tracked and multiplied entirely
+# separately, see SALT_FOOD_BONUS_MULT/SALT_DEFICIT_MULT, since it isn't a calorie source of
+# its own) -- rather than a generic "how many distinct archetypes" count. A specific crop_type
+# (wheat vs rice) or livestock_type (grazer vs browser) doesn't functionally differ enough to
+# matter here; what matters is whether the actual food GROUP varies. Foraging wild biomass
+# (no cultivation/husbandry/fishing knowledge) counts as its own single category, same tier as
+# any one staple -- it's still just one food source, not zero.
+FOOD_CATEGORY = {
+    'wheat': 'crop', 'rice': 'crop', 'soybean': 'crop', 'sweet_potato': 'crop',
+    'corn': 'crop', 'fruit': 'crop',
+    'grazer': 'meat', 'browser': 'meat',
+    'fish': 'fish',
+}
+DIET_CATEGORY_MULT = {1: 0.7, 2: 1.2, 3: 1.5}  # keyed by count of distinct categories eaten
+                                                  # recently (crop/meat/fish/wild, capped at 3
+                                                  # real categories -- wild doesn't add a 4th
+                                                  # tier on top, see _do_forage)
 
 # Mineral resources — non-food, tradeable/raidable goods rather than a caloric energy source.
 # Cold-zone-dominant real geology (coal seams, iron-bearing rock, oil deposits concentrate in
@@ -604,6 +664,14 @@ CROP_CULTIVATION_SKILL_BONUS = 90.0  # additional ceiling at full skill+suitabil
 ANIMAL_HUSBANDRY_BASE_BONUS = 20.0   # smaller than farming's -- herding is a real but secondary
                                        # economy alongside cultivation, not the primary lever
 ANIMAL_HUSBANDRY_SKILL_BONUS = 45.0  # (was 20.0)
+COLD_ZONE_GRAZING_BONUS = 1.5  # nomadic pastoralism: the cold zone is meant to be a genuinely
+                                 # thriving herding economy, not just the only zone where
+                                 # grazing is viable at all -- see the cold-zone branch of
+                                 # _do_forage's husbandry conversion bonus. Raised from an
+                                 # initial 1.3 per direct request -- this only scales the
+                                 # husbandry-specific ADD-ON term in the conversion formula, not
+                                 # the whole forage gain multiplicatively, so it doesn't carry
+                                 # the same compounding risk the salt-deficit widening did.
 FISHING_BASE_BONUS = 25.0            # between farming's and husbandry's -- a real, secondary
                                        # economy specific to water tiles, richest near the island
 FISHING_SKILL_BONUS = 60.0
@@ -611,17 +679,22 @@ SALT_FOOD_BONUS_MULT = 1.15  # real historical role: salt is a preservative, not
                                # source itself (see MINERAL_ARCHETYPES -- minerals stay
                                # non-food/tradeable) -- holding any personally raises the
                                # effective value of food foraged this tick, on top of (not
-                               # instead of) dietary diversity
-SALT_DEFICIT_MULT = 0.85     # symmetric penalty for holding none -- salt is a near-island-
-                               # exclusive good (see Cell.near_island), so this is a real,
-                               # population-wide pressure toward trading for it (or migrating
-                               # near the island), not just a niche bonus for the few who
-                               # happen to already live there. Lowered from a flat 1.0 baseline
-                               # rather than sharpening SALT_FOOD_BONUS_MULT further, so the
-                               # total with/without spread (~1.35x) stays moderate given how
-                               # rare salt currently is to discover at all (never observed in a
-                               # 101-year live run) -- most of the population will carry this
-                               # penalty for a long time until trade actually spreads it.
+                               # instead of) dietary diversity.
+                               #
+                               # A widened version (1.3/0.7, tried and reverted) collapsed the
+                               # population in local testing -- births fell behind deaths from
+                               # the very first checkpoint (tick 50) and never recovered, down
+                               # to 18 residents by tick 800. Even with salt more broadly
+                               # discoverable now (any water tile), most of the population still
+                               # doesn't hold any at any given moment, so the deficit penalty is
+                               # still effectively a near-universal tax, and it stacks
+                               # multiplicatively with the diet-diversity multiplier (see
+                               # DIET_CATEGORY_MULT, 0.7x for a single food category) and every
+                               # other forage multiplier -- 0.7x was enough to tip the population's
+                               # already-thin margin into a genuine death spiral. 1.15/0.85 is the
+                               # calibrated ceiling until salt prevalence rises substantially
+                               # further on its own.
+SALT_DEFICIT_MULT = 0.85     # symmetric penalty for holding none -- see the note above.
 IRRIGATION_DISCOVERY_CHANCE = 0.003    # per tick, requires crop_cultivation + water-adjacent cell
 IRRIGATION_MULT = 1.5
 BREEDING_DISCOVERY_CHANCE = 0.002      # per tick, requires deep crop_cultivation mastery
@@ -927,7 +1000,18 @@ TRAIT_HERITABILITY = 0.4
 TRAIT_MEANS = {  # species-typical baseline per trait -- the midpoint of Traits.random()'s range
     'strength': 1.0, 'speed': 1.0, 'perception': 1.0, 'endurance': 1.0,
     'sociability': 0.5, 'risk_tolerance': 0.5, 'immunity': 0.5, 'intelligence': 1.0,
+    'carrying_capacity': 10.0,
 }
+# Carrying capacity (see Resident.is_merchant, MERCHANT_CAPACITY_THRESHOLD) -- how much
+# personal resource stockpile a resident can physically hold at once (see the cap enforced in
+# _add_resource), an ordinary heritable trait like strength/speed, not an authored "Merchant"
+# role. Its scale (mean 10, occasional individuals well past 50) is a full order of magnitude
+# wider than every other trait's ~0.3-1.8 range, so it needs its own mutation stddev
+# (CARRYING_CAPACITY_MUTATION) rather than reusing TRAIT_MUTATION -- the same relative
+# variability at 10x the scale.
+CARRYING_CAPACITY_MUTATION = 6.0
+MERCHANT_CAPACITY_THRESHOLD = 40.0  # ~4x the species mean -- rare, matching gifted_scout's
+                                      # rough occurrence rate, not guaranteed at birth
 
 
 @dataclass
@@ -941,6 +1025,8 @@ class Traits:
     immunity: float = 0.5  # natural disease resistance; heritable, drives epidemic survival
     intelligence: float = 1.0  # cognitive ceiling — learning speed & decision quality,
                                 # throttled by available energy (Resident.usable_intelligence)
+    carrying_capacity: float = 10.0  # see MERCHANT_CAPACITY_THRESHOLD/is_merchant -- how much
+                                       # personal resource stockpile this resident can carry
 
     @staticmethod
     def random():
@@ -953,11 +1039,14 @@ class Traits:
             risk_tolerance=random.uniform(0.1, 0.9),
             immunity=random.uniform(0.1, 0.9),
             intelligence=random.uniform(0.6, 1.4),
+            carrying_capacity=random.uniform(8.0, 12.0),
         )
 
     def mutate(self, scale=1.0):
         def m(v, lo, hi):
             return max(lo, min(hi, v + random.gauss(0, TRAIT_MUTATION * scale)))
+        def m_capacity(v):
+            return max(5.0, min(150.0, v + random.gauss(0, CARRYING_CAPACITY_MUTATION * scale)))
         return Traits(
             strength=m(self.strength, 0.3, 1.8),
             speed=m(self.speed, 0.3, 1.8),
@@ -967,6 +1056,7 @@ class Traits:
             risk_tolerance=m(self.risk_tolerance, 0.0, 1.0),
             immunity=m(self.immunity, 0.0, 1.0),
             intelligence=m(self.intelligence, 0.3, 1.8),
+            carrying_capacity=m_capacity(self.carrying_capacity),
         )
 
     def blend(self, other, inbreeding_load=0.0):
@@ -988,6 +1078,7 @@ class Traits:
             risk_tolerance=regress((self.risk_tolerance + other.risk_tolerance) / 2, TRAIT_MEANS['risk_tolerance']),
             immunity=regress((self.immunity + other.immunity) / 2, TRAIT_MEANS['immunity']),
             intelligence=regress((self.intelligence + other.intelligence) / 2, TRAIT_MEANS['intelligence']),
+            carrying_capacity=regress((self.carrying_capacity + other.carrying_capacity) / 2, TRAIT_MEANS['carrying_capacity']),
         )
         if inbreeding_load > 0:
             fitness_mult = max(0.1, 1.0 - inbreeding_load * INBREEDING_FITNESS_PENALTY)
@@ -1168,6 +1259,15 @@ class Resident:
         t = self.traits
         return (t.intelligence > GIFTED_SCOUT_TRAIT_THRESHOLD and t.perception > GIFTED_SCOUT_TRAIT_THRESHOLD
                 and t.strength > GIFTED_SCOUT_TRAIT_THRESHOLD and t.speed > GIFTED_SCOUT_TRAIT_THRESHOLD)
+
+    def is_merchant(self):
+        """Rare individuals born with a much larger carrying_capacity than the species mean --
+        a pure readout over one continuous trait (RFC-0004: not a hardcoded 'Merchant' role).
+        Can physically hold a much larger personal resource stockpile (see _add_resource) and
+        see farther (see decide()'s cell-scan radius), matching real long-distance traders'
+        actual advantages (pack capacity, route knowledge) rather than granting anything not
+        derived from their own traits."""
+        return self.traits.carrying_capacity > MERCHANT_CAPACITY_THRESHOLD
 
 
 # ── World Generation ──
@@ -1598,6 +1698,38 @@ def _capability(r):
     return t.intelligence + t.perception + t.strength + t.speed
 
 
+def _is_outsider(r, res, group_root):
+    """True if `res` should read as a genuine outsider for raid-desire purposes -- prefers real
+    detected group membership (group_root, the per-resident union-find root from Simulation._tick,
+    same pass that produces the group_count metric) over the cruder bond+relatedness proxy alone.
+    Fission splits a population into real, distinct communities (RFC-0007), but two members of
+    the SAME post-split community who simply haven't personally interacted yet would previously
+    still read as mutual "strangers" under the pairwise-only check, which is exactly backwards --
+    they're one of us, just not personally met. group_root fixes that: raid desire should track
+    genuine outgroup status, not just "have we personally bonded." Falls back to the old
+    bond+relatedness proxy when group data isn't available yet (very first tick) or a resident
+    fell outside the last union-find pass (newly born since, or the pass hasn't run yet)."""
+    if group_root and r.id in group_root and res.id in group_root:
+        return group_root[r.id] != group_root[res.id]
+    return (res.id not in r.bonds or r.bonds[res.id].quality <= 0) and _relatedness(r, res) < 0.25
+
+
+def _add_resource(r, good, amount):
+    """Adds to a resident's resource stockpile respecting their carrying_capacity (see
+    Resident.is_merchant) -- total goods held (summed across every type) can't exceed what they
+    can physically carry. Silently caps rather than rejecting outright (a farmer whose harvest
+    exceeds capacity keeps what fits, not nothing) and returns the amount actually added, so
+    callers that also deduct from a source (trade, raiding) only remove what really moved."""
+    if amount <= 0:
+        return 0.0
+    total_held = sum(r.resources.values())
+    room = max(0.0, r.traits.carrying_capacity - total_held)
+    added = min(amount, room)
+    if added > 0:
+        r.resources[good] = r.resources.get(good, 0.0) + added
+    return added
+
+
 # ── Fast-Tier Decision ──
 
 def _best_food(cells):
@@ -1620,7 +1752,7 @@ def _step_toward(rx, ry, tx, ty, grid):
     return ('rest', None, None, None)
 
 
-def decide(r, grid, residents, tick, pressure=0.0, buckets=None):
+def decide(r, grid, residents, tick, pressure=0.0, buckets=None, group_root=None):
     radius = r.view_radius() + int(r.traits.sociability * 2)
     # _nearby_cells is O(radius^2) (a grid-cell bounding-box scan, not bucketable the same way
     # as residents) -- view_radius() can reach 60-65 at high perception/sociability, making a
@@ -1632,7 +1764,8 @@ def decide(r, grid, residents, tick, pressure=0.0, buckets=None):
     # exceptional perception/intelligence -- rare enough (all four traits must simultaneously
     # exceed GIFTED_SCOUT_TRAIT_THRESHOLD) that this doesn't reintroduce the perf problem
     # PERCEPTION_CELL_CAP fixed for the general population.
-    scout_cap = GIFTED_SCOUT_CELL_CAP if r.is_gifted_scout() else PERCEPTION_CELL_CAP
+    scout_cap = GIFTED_SCOUT_CELL_CAP if r.is_gifted_scout() else (
+        MERCHANT_CELL_CAP if r.is_merchant() else PERCEPTION_CELL_CAP)
     cell_radius = min(radius, scout_cap)
     cells = _nearby_cells(r.x, r.y, cell_radius, grid)
     near_res = _nearby_residents(r.x, r.y, radius, residents, buckets)
@@ -1672,9 +1805,7 @@ def decide(r, grid, residents, tick, pressure=0.0, buckets=None):
         adjacent = [(res, d) for res, d in near_res if d <= 1 and res.energy > 900]
         if adjacent and random.random() < raid_base:
             # Hamilton's rule: prefer raiding strangers over genetic relatives (see _relatedness)
-            strangers = [(res, d) for res, d in adjacent
-                         if (res.id not in r.bonds or r.bonds[res.id].quality <= 0)
-                         and _relatedness(r, res) < 0.25]
+            strangers = [(res, d) for res, d in adjacent if _is_outsider(r, res, group_root)]
             # Below extreme pressure, prefer seizing from strangers over one's own
             # established relationships or kin; only true crisis (pressure >= 2.0) erodes that
             # Raise pressure threshold for raiding relatives (kin discount per Hamilton's rule)
@@ -1691,10 +1822,8 @@ def decide(r, grid, residents, tick, pressure=0.0, buckets=None):
     # and, empirically, almost never does once a population is well-fed).
     if r.energy > OPPORTUNISTIC_RAID_ENERGY_MIN:
         strangers_adjacent = [(res, d) for res, d in near_res
-                               if d <= 1 and res.energy > 900
-                               and (res.id not in r.bonds or r.bonds[res.id].quality <= 0)
-                               and _relatedness(r, res) < 0.25]
-        if strangers_adjacent and random.random() < OPPORTUNISTIC_RAID_CHANCE * r.traits.risk_tolerance:
+                               if d <= 1 and res.energy > 900 and _is_outsider(r, res, group_root)]
+        if strangers_adjacent:
             # Chiefly rivalry: chief_standing is a scarce, contested status (see
             # FOLLOWER_TRIBUTE_SHARE) -- a chief targets a rival chief among the candidates
             # first when one is present, rather than treating every stranger as interchangeable
@@ -1704,8 +1833,52 @@ def decide(r, grid, residents, tick, pressure=0.0, buckets=None):
             rival_chiefs = ([(res, d) for res, d in strangers_adjacent if res.has_chief_standing()]
                              if r.has_chief_standing() else [])
             candidate = max(rival_chiefs or strangers_adjacent, key=lambda x: x[0].energy)[0]
-            if _capability(r) > _capability(candidate) * OPPORTUNISTIC_RAID_POWER_RATIO:
-                return ('raid', None, None, candidate.id)
+            # Payoff gap: raiding is more attractive the more a target has relative to what this
+            # resident already holds -- a rough steal-vs-forage comparison, on top of the real
+            # asymmetry _do_raid already has (a raid skips the caloric effort cost _do_forage
+            # pays for the same energy). Scales the trigger CHANCE, not just which target gets
+            # picked once triggered. Capped at 2x so an enormous gap doesn't make raiding a
+            # near-certainty every qualifying tick.
+            payoff_ratio = min(2.0, candidate.energy / max(1.0, r.energy))
+            if random.random() < OPPORTUNISTIC_RAID_CHANCE * r.traits.risk_tolerance * payoff_ratio:
+                if _capability(r) > _capability(candidate) * OPPORTUNISTIC_RAID_POWER_RATIO:
+                    return ('raid', None, None, candidate.id)
+
+    # TERRITORIAL DEFENSE: a chief treats a resource-competing stranger's mere presence
+    # (farming/herding right next to them, not trading) as a real grievance -- waiting for a
+    # decisive capability edge before acting (like ordinary OPPORTUNISTIC RAID above) isn't how
+    # a resource-defending Big Man actually behaves, so this uses a real but lower bar
+    # (TERRITORIAL_DEFENSE_POWER_RATIO). Still requires adjacency (raid resolution needs it
+    # anyway) and still resolves through the same win/loss _do_raid mechanics as every other
+    # raid -- a chief with territorial motive isn't guaranteed to win, just more willing to try.
+    if r.has_chief_standing() and r.energy > OPPORTUNISTIC_RAID_ENERGY_MIN:
+        resource_rivals = [(res, d) for res, d in near_res
+                            if d <= 1 and res.energy > 500 and _is_outsider(r, res, group_root)
+                            and ('crop_cultivation' in res.known_knowledge or 'animal_husbandry' in res.known_knowledge)]
+        if resource_rivals and random.random() < TERRITORIAL_DEFENSE_CHANCE:
+            target = max(resource_rivals, key=lambda x: x[0].energy)[0]
+            if _capability(r) > _capability(target) * TERRITORIAL_DEFENSE_POWER_RATIO:
+                return ('raid', None, None, target.id)
+
+    # NOMADIC WINTER RAID: a real historical pattern (steppe pastoralists raiding agricultural
+    # settlements during harsh winters -- Mongol/Hunnic/Scythian incursions are the textbook
+    # examples) falls directly out of existing mechanics with no new "raiding party" object.
+    # animal_husbandry is now cold-zone-exclusive (see CLIMATE_ZONES), so knowing it alone
+    # proves pastoral origin; MIGRATE (winter) below already moves energy-stressed cold-zone
+    # residents toward warmer zones every winter. A pastoralist who's already comfortable
+    # enough not to need that migration (energy > 900) but is still out in non-cold territory
+    # during winter raids a nearby outsider more readily than the ordinary opportunistic case --
+    # when many individually-migrating herders share this same disposition and reach the same
+    # farmland in the same winter, the AGGREGATE reads as a coordinated raiding wave, but
+    # nothing here actually coordinates them (RFC-0007: no scripted war, no Group object).
+    if ('animal_husbandry' in r.known_knowledge and season == 'winter'
+            and climate_zone(r.y) != 'cold' and r.energy > 900):
+        winter_raid_targets = [(res, d) for res, d in near_res
+                                if d <= 1 and res.energy > 500 and _is_outsider(r, res, group_root)]
+        if winter_raid_targets and random.random() < NOMADIC_WINTER_RAID_CHANCE:
+            target = max(winter_raid_targets, key=lambda x: x[0].energy)[0]
+            if _capability(r) > _capability(target) * NOMADIC_WINTER_RAID_POWER_RATIO:
+                return ('raid', None, None, target.id)
 
     # MIGRATE (winter): move to a warmer zone when the cold itself is the acute threat
     if r.energy < 900 and season == 'winter' and climate_zone(r.y) != 'tropical':
@@ -1960,10 +2133,15 @@ def decide(r, grid, residents, tick, pressure=0.0, buckets=None):
     # chance to happen at all. Still only ever acts on someone already in near_res -- no
     # traveling toward a distant stranger, which is what made the reverted territorial-retreat/
     # exogamy attempts unstable.
-    low_diversity = sum(1 for last in r.recent_food_types.values() if tick - last <= DIET_DIVERSITY_WINDOW) <= 1
-    if r.traits.sociability > 0.5 and near_res and (pressure > 1.0 or low_diversity) and random.random() < 0.5:
+    low_diversity = len({FOOD_CATEGORY.get(t, 'wild') for t, last in r.recent_food_types.items()
+                          if tick - last <= DIET_DIVERSITY_WINDOW}) <= 1
+    # Merchants (see Resident.is_merchant) approach strangers for the same reason as low
+    # diversity above -- they're the ones with something worth trading and the carrying
+    # capacity to move it (see _add_resource/_maybe_trade) -- independent of pressure/diet.
+    is_merchant = r.is_merchant()
+    if r.traits.sociability > 0.5 and near_res and (pressure > 1.0 or low_diversity or is_merchant) and random.random() < 0.5:
         strangers = [res for res, d in near_res if res.id not in r.bonds and _relatedness(r, res) == 0]
-        if low_diversity and strangers:
+        if (low_diversity or is_merchant) and strangers:
             t = random.choice(strangers)
         else:
             familiar = [res for res, d in near_res if res.id in r.bonds or _relatedness(r, res) > 0]
@@ -2062,7 +2240,12 @@ def _do_forage(r, grid, tick, same_cell_residents=None):
     # Salt (see SALT_WATER_SUITABILITY/SALT_ISLAND_SUITABILITY) is its own suitability, not
     # folded into mine_suit above -- it must never bias the zone-weighted coal/iron_ore/oil pick,
     # just add a separate, deterministic path to salt specifically wherever there's water.
-    salt_suit = SALT_ISLAND_SUITABILITY if cell.near_island else (SALT_WATER_SUITABILITY if cell.water else 0)
+    # Excluded from the cold zone specifically (real evaporite/solar-salt formation needs real
+    # warmth, not a mechanic reason so much as a deliberate zone-exclusivity choice: the cold
+    # zone's own economy is pastoral grazing, see COLD_ZONE_GRAZING_BONUS, and giving it salt
+    # too would blunt the actual point of zone specialization forcing real exchange).
+    salt_suit = 0 if cell.climate == 'cold' else (
+        SALT_ISLAND_SUITABILITY if cell.near_island else (SALT_WATER_SUITABILITY if cell.water else 0))
     # Fishing (see TERRAIN_FISHING) isn't zone-gated like farming/grazing/mining -- real
     # fisheries exist in cold, temperate, and tropical water alike, so suitability is purely
     # terrain (is this water, and how good a fishery is it) plus the island proximity bonus.
@@ -2083,7 +2266,7 @@ def _do_forage(r, grid, tick, same_cell_residents=None):
                 })
                 discovery_msg = f'{r.name} domesticated a {crop_type} crop'
     if graze_suit > 0 and 'animal_husbandry' not in r.known_knowledge:
-        if random.random() < DOMESTICATION_DISCOVERY_CHANCE * graze_suit:
+        if random.random() < DOMESTICATION_DISCOVERY_CHANCE * graze_suit * HUSBANDRY_DISCOVERY_MULT:
             if random.random() < DOMESTICATION_SUCCESS_CHANCE:
                 livestock_type = _pick_archetype(LIVESTOCK_ARCHETYPES, cell.climate)
                 _learn_knowledge(r, 'animal_husbandry', {
@@ -2187,7 +2370,7 @@ def _do_forage(r, grid, tick, same_cell_residents=None):
         if mineral_type and relevant_suit > 0:
             skill = r.skills.get('mining', 0) / 100.0
             yield_amount = MINING_YIELD_PER_TICK * (0.5 + skill) * relevant_suit
-            r.resources[mineral_type] = r.resources.get(mineral_type, 0.0) + yield_amount
+            _add_resource(r, mineral_type, yield_amount)
         if random.random() < 0.03:
             _reinforce_knowledge(r, 'mining', 0.02)
 
@@ -2218,7 +2401,15 @@ def _do_forage(r, grid, tick, same_cell_residents=None):
             # population running a genuine, chronic aggregate energy deficit).
             conversion += CROP_CULTIVATION_BASE_BONUS + r.skills.get('crop_cultivation', 0) / 100.0 * farm_suit * CROP_CULTIVATION_SKILL_BONUS
         if graze_suit > 0 and 'animal_husbandry' in r.known_knowledge:
-            conversion += ANIMAL_HUSBANDRY_BASE_BONUS + r.skills.get('animal_husbandry', 0) / 100.0 * graze_suit * ANIMAL_HUSBANDRY_SKILL_BONUS
+            husbandry_bonus = ANIMAL_HUSBANDRY_BASE_BONUS + r.skills.get('animal_husbandry', 0) / 100.0 * graze_suit * ANIMAL_HUSBANDRY_SKILL_BONUS
+            if cell.climate == 'cold':
+                # Real nomadic pastoralism (Eurasian steppe, etc.): large herds over cold-zone
+                # grazing land historically supported real population density, not just marginal
+                # subsistence -- the cold zone already has the highest grazing_suitability
+                # (CLIMATE_ZONES) and grazer livestock already favors it (LIVESTOCK_ARCHETYPES'
+                # zone_weights), but the actual yield bonus wasn't zone-differentiated at all.
+                husbandry_bonus *= COLD_ZONE_GRAZING_BONUS
+            conversion += husbandry_bonus
         if fish_suit > 0 and 'fishing' in r.known_knowledge:
             conversion += FISHING_BASE_BONUS + r.skills.get('fishing', 0) / 100.0 * fish_suit * FISHING_SKILL_BONUS
         # Sex-based division of labor: reproduction/childcare responsibilities reduce, but
@@ -2256,8 +2447,9 @@ def _do_forage(r, grid, tick, same_cell_residents=None):
         else:
             food_type = 'wild'
         r.recent_food_types[food_type] = tick
-        distinct_recent = sum(1 for last in r.recent_food_types.values() if tick - last <= DIET_DIVERSITY_WINDOW)
-        diet_mult = DIET_DIVERSITY_MULT_MIN + (DIET_DIVERSITY_MULT_MAX - DIET_DIVERSITY_MULT_MIN) * min(1.0, (distinct_recent - 1) / 3.0)
+        distinct_categories = {FOOD_CATEGORY.get(t, 'wild') for t, last in r.recent_food_types.items()
+                                if tick - last <= DIET_DIVERSITY_WINDOW}
+        diet_mult = DIET_CATEGORY_MULT.get(min(len(distinct_categories), 3), 0.7)
 
         salt_mult = SALT_FOOD_BONUS_MULT if r.resources.get('salt', 0) > 0 else SALT_DEFICIT_MULT
         gain = harvest * conversion * sex_mult * diet_mult * salt_mult
@@ -2272,7 +2464,7 @@ def _do_forage(r, grid, tick, same_cell_residents=None):
             crop_type = r.known_knowledge['crop_cultivation'].get('crop_type')
             if crop_type:
                 surplus = (pre_cap_energy - MAX_ENERGY) * CROP_SURPLUS_CONVERSION
-                r.resources[crop_type] = r.resources.get(crop_type, 0.0) + surplus
+                _add_resource(r, crop_type, surplus)
 
         # Leave some food behind (emergent storage)
         # Storage skill increases how much food is retained
@@ -2287,6 +2479,24 @@ def _do_forage(r, grid, tick, same_cell_residents=None):
     # scan the whole population (or, worse, self.residents including every resident who has
     # ever lived) to find who else is standing on this tile -- see _nearby_residents's docstring
     # for the O(n^2)-in-aggregate failure mode this mirrors.
+    # Cultivation-driven conflict (see CULTIVATED_LAND_CONFLICT_THRESHOLD) is a second, distinct
+    # trigger alongside plain scarcity: harvesting land someone has genuinely invested real work
+    # in is a grievance on its own, independent of how much biomass happens to be left -- so the
+    # rival filter here is Hamilton's-rule stranger-preference (a bonded kin sharing the family
+    # plot isn't "stealing"), not mutual desperation like the scarcity case below.
+    if same_cell_residents and cell.cultivation > CULTIVATED_LAND_CONFLICT_THRESHOLD:
+        cultivation_rivals = [o for o in same_cell_residents if o.alive and o.id != r.id
+                               and (o.id not in r.bonds or r.bonds[o.id].quality <= 0)
+                               and _relatedness(r, o) < 0.25]
+        if cultivation_rivals and random.random() < CONFLICT_CHANCE:
+            rival = random.choice(cultivation_rivals)
+            r_power = r.traits.strength * random.uniform(0.7, 1.3)
+            o_power = rival.traits.strength * random.uniform(0.7, 1.3)
+            loser = r if r_power < o_power else rival
+            dmg = random.uniform(CONFLICT_DMG_MIN, CONFLICT_DMG_MAX)
+            loser.health -= dmg
+            return f'{r.name} fought {rival.name} over cultivated land — {loser.name} injured (-{dmg:.0f}hp)'
+
     if same_cell_residents and cell.biomass < 15:
         rivals = [o for o in same_cell_residents if o.alive and o.id != r.id and o.energy < 1050]
         if rivals and random.random() < CONFLICT_CHANCE:
@@ -2361,8 +2571,8 @@ def _maybe_trade(r, target, tick):
         return None
     good = random.choice(candidates)
     gift = r.resources[good] * TRADE_GIFT_FRACTION
-    r.resources[good] -= gift
-    target.resources[good] = target.resources.get(good, 0.0) + gift
+    accepted = _add_resource(target, good, gift)
+    r.resources[good] -= accepted
     r.bonds[target.id].quality = min(1.0, r.bonds[target.id].quality + 0.15)
     target.bonds[r.id].quality = min(1.0, target.bonds[r.id].quality + 0.15)
     return f'{r.name} traded {good} with {target.name}'
@@ -2563,11 +2773,11 @@ def _do_raid(r, target_id, residents_by_id, tick):
             steal_target = random.choice(lacking) if lacking else max(target.resources, key=target.resources.get)
             steal_amount = target.resources[steal_target] * 0.5
             if steal_amount > 0.01:
-                target.resources[steal_target] -= steal_amount
+                taken = _add_resource(r, steal_target, steal_amount)
+                target.resources[steal_target] -= taken
                 if target.resources[steal_target] < 0.01:
                     del target.resources[steal_target]
-                r.resources[steal_target] = r.resources.get(steal_target, 0.0) + steal_amount
-                resource_msg = f' and {steal_amount:.1f} {steal_target}'
+                resource_msg = f' and {taken:.1f} {steal_target}'
 
         # Coercion — see COERCION_* constants. An overwhelming win against a target nobody is
         # bonded strongly enough to defend can escalate a one-off theft into ongoing labor
@@ -3106,7 +3316,7 @@ class Simulation:
                         heir = max(sons, key=lambda s: s.age) if sons else None
                     if heir is not None:
                         for good, amount in r.resources.items():
-                            heir.resources[good] = heir.resources.get(good, 0.0) + amount
+                            _add_resource(heir, good, amount)
                         heir.energy = min(MAX_ENERGY, heir.energy + r.energy * HEIR_ENERGY_INHERITANCE)
                         for f in followers:
                             if f.id == heir.id:
@@ -3145,7 +3355,8 @@ class Simulation:
                              'text': f'[AI] {r.name}: {ai_text[:80] if ai_text else "decided"}',
                              'x': r.x, 'y': r.y})
             else:
-                action, tx, ty, tid = decide(r, self.grid, living, tick, self._pressure, resident_buckets)
+                action, tx, ty, tid = decide(r, self.grid, living, tick, self._pressure, resident_buckets,
+                                              getattr(self, '_group_root', {}))
 
             msg = None
             _energy_before_action = r.energy
@@ -3250,11 +3461,19 @@ class Simulation:
                     if bond.quality > 0 and bond_id in parent:
                         union(r.id, bond_id)
             groups = {}
+            group_root = {}
             for r in living:
                 root = find(r.id)
                 groups[root] = groups.get(root, 0) + 1
+                group_root[r.id] = root
             self._last_group_count = len(groups)
             self._last_largest_group = max(groups.values(), default=0)
+            # Per-resident group membership (see decide()'s OPPORTUNISTIC RAID/TERRITORIAL
+            # DEFENSE) -- reuses the find() roots this same union-find pass already computes,
+            # no extra cost. Refreshed on the same SEASON_LENGTH cadence as group_count above;
+            # a resident who joined/left a group within the last few ticks may read slightly
+            # stale, an acceptable tradeoff matching resident_buckets' own documented one.
+            self._group_root = group_root
         group_count = self._last_group_count
         largest_group_size = self._last_largest_group
 
@@ -3307,6 +3526,7 @@ class Simulation:
         chief_holders = sum(1 for r in living if r.has_chief_standing())
         priest_holders = sum(1 for r in living if r.has_priest_standing())
         gifted_scout_count = sum(1 for r in living if r.is_gifted_scout())
+        merchant_count = sum(1 for r in living if r.is_merchant())
         shelter_holders = sum(1 for r in living if 'shelter_building' in r.known_knowledge)
         clothing_holders = sum(1 for r in living if 'clothing_making' in r.known_knowledge)
         fire_holders = sum(1 for r in living if 'fire_making' in r.known_knowledge)
@@ -3378,9 +3598,11 @@ class Simulation:
             'chief_holders': chief_holders,
             'priest_holders': priest_holders,
             'gifted_scout_count': gifted_scout_count,
+            'merchant_count': merchant_count,
             'coerced_count': sum(1 for r in living if r.coerced_by is not None),
             'avg_diet_diversity': round(sum(
-                sum(1 for last in r.recent_food_types.values() if tick - last <= DIET_DIVERSITY_WINDOW)
+                len({FOOD_CATEGORY.get(t, 'wild') for t, last in r.recent_food_types.items()
+                     if tick - last <= DIET_DIVERSITY_WINDOW})
                 for r in living) / max(1, n), 3),
             'group_count': group_count,
             'largest_group_size': largest_group_size,
@@ -3450,9 +3672,10 @@ class Simulation:
                 'energy_given_away': round(r.energy_given_away, 1), 'students_taught': r.students_taught,
                 'inbreeding_load': round(r.inbreeding_load, 3),
                 'is_gifted_scout': r.is_gifted_scout(), 'scout_target': r.scout_target,
+                'is_merchant': r.is_merchant(), 'carrying_capacity': round(r.traits.carrying_capacity, 1),
                 'coerced_by': r.coerced_by,
-                'diet_diversity': sum(1 for last in r.recent_food_types.values()
-                                       if self.tick_count - last <= DIET_DIVERSITY_WINDOW),
+                'diet_diversity': len({FOOD_CATEGORY.get(t, 'wild') for t, last in r.recent_food_types.items()
+                                        if self.tick_count - last <= DIET_DIVERSITY_WINDOW}),
                 'str': round(r.traits.strength, 2),
                 'spd': round(r.traits.speed, 2),
                 'per': round(r.traits.perception, 2),

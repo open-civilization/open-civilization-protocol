@@ -508,6 +508,7 @@ Phase 1 SHOULD include traits affecting:
 - sociability (tendency toward cooperation vs. solitary behavior)
 - learning rate (implemented — same `intelligence` trait; see Cognition Model)
 - disease immunity (implemented — drives differential survival during epidemics, see Mortality Factors)
+- carrying capacity (implemented — `carrying_capacity` trait, mean 10, occasional individuals well past 40; caps total personal resource stockpile, see `_add_resource`, and widens perception radius at the high end. `Resident.is_merchant()` is a pure threshold readout over this one trait — not an authored "Merchant" role — matching `is_gifted_scout()`'s pattern of emergence from a trait combination/value rather than a hardcoded category)
 
 ### Trait Properties
 

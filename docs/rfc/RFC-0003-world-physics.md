@@ -400,12 +400,57 @@ population (a real cost, most of the map doesn't have salt yet at any given time
 destabilizing births/deaths equilibrium.
 
 This pairs with dietary diversity (`recent_food_types` on Resident, a rolling per-type
-last-eaten-tick record bounded to the fixed food vocabulary): eating only one staple over a
-30-tick window caps forage gain at 0.75x, eating four or more distinct types raises it to 1.3x.
-A settlement anywhere is realistically limited to whatever one or two staples its local terrain
-suits, so sustained high output requires either genuine local variety (farm + herd + fish) or
-exchange with a differently-specialized settlement (see RFC-0007 for the trade trigger this
-now actually connects to).
+last-eaten-tick record bounded to the fixed food vocabulary). Revised from an initial
+distinct-archetype-count formula to three real food categories -- crop, meat, fish
+(`FOOD_CATEGORY`; salt stays entirely separate, see below) -- since a specific crop_type (wheat
+vs rice) doesn't functionally differ enough to matter, only whether the actual food GROUP
+varies: `DIET_CATEGORY_MULT` gives 0.7x for one category (including wild-only foraging), 1.2x
+for two, 1.5x for all three. Salt multiplies on top of that, separately: 1.15x if held, 0.85x
+deficit otherwise (`SALT_FOOD_BONUS_MULT`/`SALT_DEFICIT_MULT` -- a wider 1.3/0.7 spread was
+tried and reverted after it collapsed a local test population to 18 residents by tick 800; the
+two multipliers compound, so pushing both further apart at once is riskier than it looks).
+Salt's own suitability is separate again: reachable at any water tile, but the island is ten
+times richer, and it's excluded entirely from the cold zone (`SALT_WATER_SUITABILITY`/
+`SALT_ISLAND_SUITABILITY`).
+
+A settlement anywhere is realistically limited to whatever staples its local terrain suits, so
+sustained high output requires either genuine local variety (farm + herd + fish) or exchange
+with a differently-specialized settlement (see RFC-0007 for the trade trigger this connects to,
+and the `is_merchant` trait that specializes in exactly this exchange).
+
+### Zone Exclusivity
+
+Cold and temperate zones are now mutually exclusive economies, not just "one is better at X":
+`grazing_suitability`/`farming_suitability` in `CLIMATE_ZONES` are 0.0 in the zone that isn't
+that zone's specialty (temperate has zero grazing; cold has zero farming and zero salt). This
+gives real, felt economic reasons for cross-zone exchange rather than everyone being a passable
+generalist everywhere. Cold-zone herding also gets its own yield bonus
+(`COLD_ZONE_GRAZING_BONUS`, 1.5x) reflecting real nomadic pastoralism (Eurasian steppe, etc.) as
+a genuinely thriving economy, not merely the only viable option there.
+
+A fully farming-free cold zone (tried first) created a real bootstrapping trap: near-zero
+winter regrowth (`winter: 0.005`) plus 2.8x winter upkeep meant almost nobody survived long
+enough to ever discover `animal_husbandry` in the first place, so the zone stayed near-empty
+even after tripling the discovery odds (`HUSBANDRY_DISCOVERY_MULT`). A small farming fallback
+(0.15 suitability) was tried as a fix and made total population measurably *worse* across a
+3-seed comparison -- crop_cultivation and animal_husbandry are independent discovery rolls, and
+the only crops with any cold-zone weight (`sweet_potato`/`corn` in `CROP_ARCHETYPES`) are the
+two weakest archetypes (~0.55-0.6x energy density vs wheat's 1.4x), so a resident unlucky
+enough to roll farming first likely burns a knowledge-capacity slot and effort on a genuinely
+weak option instead of the much more valuable herding path. Reverted; the actual survival
+bottleneck (get a resident through their first cold-zone winter at all) still needs a direct
+fix, e.g. softening `winter`/`winter_upkeep` rather than adding a competing weaker discovery
+path.
+
+Real historical pattern that falls out of this without any new "raiding party" object: nomadic
+winter raiding (see decide()'s `NOMADIC WINTER RAID` block, RFC-0007) -- since
+`animal_husbandry` is now cold-zone-exclusive, knowing it alone proves pastoral origin, and a
+herder who's migrated south for winter (see the existing `MIGRATE (winter)` block) but is
+comfortable enough not to need that migration raids nearby outsiders more readily than the
+ordinary case, echoing Mongol/Hunnic/Scythian-style incursions. Nothing coordinates a "raiding
+party"; when many individually-migrating herders share the same disposition and reach the same
+farmland in the same winter, the aggregate reads as coordinated, but each decision is
+individual.
 
 ### Climate Zones
 
