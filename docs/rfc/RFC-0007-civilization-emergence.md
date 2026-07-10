@@ -426,6 +426,24 @@ engine):
   Scythian). Nothing coordinates a "raiding party" — when many individually-migrating herders
   share the disposition and land in the same winter refuge, the aggregate reads as a coordinated
   raid, but each resident's decision is independent and local.
+  - **Horse range extension**: a nomad who specifically domesticated a horse (`LIVESTOCK_
+    ARCHETYPES`, RFC-0003) can reach beyond immediate adjacency for this same opportunity, up to
+    `HORSE_RAID_RANGE` (8 tiles), rather than only ever acting on someone already next to them.
+    This is the one place this session where a resident travels toward a target that wasn't
+    already adjacent, so it needed the same safety property that made `FOLLOW STRONGER` and
+    `MERCHANT SEEK CHIEF` safe: always the *nearest* valid target within range, never the "best"
+    one by any quality metric (energy, standing) re-evaluated fresh each tick — nearest is what
+    a resident actually converges toward as they approach (distance to it can only shrink each
+    step), which is what avoided the persistent-re-targeting failure mode that collapsed the
+    reverted territorial-retreat and inbreeding-aware-exogamy attempts. Once adjacent, resolves
+    through the exact same capability/power-ratio gate as the base case — the horse only changes
+    how far a nomad will travel to find that adjacency, not what happens once there. Reaching a
+    non-hostile resident this way (e.g. a merchant) doesn't trigger a trade directly; it just
+    puts the horse owner in range for the ordinary SOCIAL block to pick up next tick, same as
+    any other proximity — no separate trade-seeking logic was added for this. Verified across 10
+    seeds (not just 3, given this session's history of a 3-seed suite missing a real regression):
+    zero extinctions, and an instrumented run confirmed the mechanism actually fires (803 travel
+    moves and 29 completed raids from horse owners across a 2000-tick sample).
 
 **Attempted and reverted** (see Collapse and Regression): a Hawk-Dove/Bourgeois "territorial
 retreat" mechanic (individually flee a local area once nearby strangers are decisively stronger

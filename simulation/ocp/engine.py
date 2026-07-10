@@ -216,6 +216,20 @@ TERRITORIAL_DEFENSE_POWER_RATIO = 1.2
 # just failed for the season has more at stake than an ordinary opportunist.
 NOMADIC_WINTER_RAID_CHANCE = 0.2
 NOMADIC_WINTER_RAID_POWER_RATIO = 1.1
+# Horse range extension (see LIVESTOCK_ARCHETYPES) -- a nomad who specifically domesticated a
+# horse (not sheep/cattle) can reach beyond immediate adjacency for the same nomadic-winter
+# opportunity above. Deliberately travels toward the NEAREST valid target within range, not the
+# "best" one by any quality metric (energy, standing, etc.) -- nearest is what a resident
+# actually converges toward as they approach (distance to it can only shrink each step), which
+# is what makes this safe; chasing the best-by-quality candidate across a re-evaluated pool
+# every tick is exactly the persistent-re-targeting shape that collapsed the reverted
+# territorial-retreat and inbreeding-aware-exogamy attempts (see Hierarchies, RFC-0007). Once
+# adjacent, resolves exactly like the existing d<=1 case (same capability/power-ratio gate) --
+# this only changes how far a horse owner will travel to find that adjacency, not what happens
+# once there. Reaching a non-hostile resident (e.g. a merchant) this way doesn't itself trade --
+# it just puts the horse owner in range for the ordinary SOCIAL block to pick it up next tick,
+# same as any other proximity -- no new trade-seeking logic needed.
+HORSE_RAID_RANGE = 8
 # Coercion (see coerced_by on Resident, _do_raid's win branch, and _tick's forage-tribute
 # block) — population as a resource, RFC-0007 compliant: this is a per-individual relationship
 # field like spouse_id/bonds, not an authored "Slave" class or group object. An overwhelming
@@ -2043,6 +2057,13 @@ def decide(r, grid, residents, tick, pressure=0.0, buckets=None, group_root=None
             target = max(winter_raid_targets, key=lambda x: x[0].energy)[0]
             if _capability(r) > _capability(target) * NOMADIC_WINTER_RAID_POWER_RATIO:
                 return ('raid', None, None, target.id)
+        elif r.known_knowledge['animal_husbandry'].get('crop_type') == 'horse':
+            reachable = [(res, d) for res, d in near_res
+                         if 1 < d <= HORSE_RAID_RANGE and res.energy > 500
+                         and _is_outsider(r, res, group_root)]
+            if reachable:
+                target = min(reachable, key=lambda x: x[1])[0]
+                return _step_toward(r.x, r.y, target.x, target.y, grid)
 
     # MIGRATE (winter): move to a warmer zone when the cold itself is the acute threat
     if r.energy < 900 and season == 'winter' and climate_zone(r.y) != 'tropical':
