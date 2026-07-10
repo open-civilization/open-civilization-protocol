@@ -46,6 +46,7 @@ CLUSTER_POPULATION = 120  # per cluster (up from the old single-cluster INITIAL_
                            # diversity within each cluster before inbreeding load can accumulate)
 INITIAL_POPULATION = NUM_FOUNDING_CLUSTERS * CLUSTER_POPULATION  # kept for anything reading a
                                                                     # total-population constant
+FOUNDING_HERDER_COUNT = 5  # per cluster -- see the founding-herders block in Simulation.__init__
 CLUSTER_SPAWN_MARGIN = 15  # each cluster's founders spawn within its own center +/- this --
                              # tighter than the old single-cluster margin (30) so clusters stay
                              # spatially distinct from each other rather than spreading into
@@ -3179,6 +3180,28 @@ class Simulation:
             for m, f in zip(males, females):
                 m.bonds[f.id] = Bond(f.id, 0.3, 0)
                 f.bonds[m.id] = Bond(m.id, 0.3, 0)
+
+            # Founding herders (see COLD_ZONE_DISEASE_MULT's postmortem, RFC-0003): the cold
+            # zone's bootstrapping trap isn't just "harsh winters kill people" -- it's a genuine
+            # chicken-and-egg problem, since animal_husbandry itself has to be discovered (a
+            # random event requiring real survival time) before its own energy/health benefits
+            # ever kick in. Real founding dispersals (Eurasian steppe pastoralist migrations)
+            # brought already-domesticated herds with them; they didn't reinvent domestication
+            # locally from scratch on arrival every time. This doesn't relocate or otherwise
+            # privilege anyone -- it only pre-loads animal_husbandry (same level/format as an
+            # ordinary discovery event) for a handful of founders who already landed, by the
+            # existing random spawn above, on cold-zone terrain that's actually grazing-suitable
+            # (TERRAIN_GRAZING > 0), skipping the discovery roll for them specifically.
+            cold_grazing_founders = [
+                r for r in cluster_residents
+                if climate_zone(r.y) == 'cold' and TERRAIN_GRAZING.get(self.grid[r.y][r.x].terrain, 0) > 0
+            ]
+            for r in cold_grazing_founders[:FOUNDING_HERDER_COUNT]:
+                livestock_type = _pick_archetype(LIVESTOCK_ARCHETYPES, 'cold')
+                _learn_knowledge(r, 'animal_husbandry', {
+                    'level': 0.15, 'source': 'founding_pastoral_knowledge', 'tick_learned': 0,
+                    'crop_type': livestock_type,
+                })
 
     @classmethod
     def load_or_create(cls, snapshot_path=None, seed=None):

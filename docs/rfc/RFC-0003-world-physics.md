@@ -577,6 +577,29 @@ trap. The trap remains open; a future attempt should look beyond disease/pressur
 direct calorie-erosion-to-health pathway itself, or population-independent seeding of viable
 early cold-zone founders.
 
+**Founding herders (tried next, also insufficient on its own).** Per direct request:
+`FOUNDING_HERDER_COUNT` (5 per founding cluster) pre-loads `animal_husbandry` at world
+generation for founders who already land, via the existing random initial spawn, on genuinely
+grazing-suitable cold-zone terrain (`TERRAIN_GRAZING > 0`) -- same knowledge level/format as an
+ordinary discovery event, no relocation or other privilege, just skipping the discovery *roll*
+specifically for a handful of founders. Real-world motivation: founding pastoralist dispersals
+(Eurasian steppe migrations) brought already-domesticated herds with them rather than
+reinventing domestication locally from scratch on arrival every time.
+
+Verified across the same 10 seeds: all 10 survived cleanly this time, including the
+previously-fragile seed from the disease-mult fix above (now healthy) -- a real, safe
+improvement with no regressions. But a follow-up diagnostic showed it does NOT solve the
+underlying trap: even pre-equipped founders still died out by roughly tick 400-600 in the same
+test seed, and the ~80-tick continuous-residency ceiling barely moved (81 vs 80/70 in earlier
+diagnostics). This confirms the earlier hypothesis -- whether a resident *knows* husbandry
+isn't what determines cold-zone survival time; the ~80-tick ceiling is set by the direct
+calorie-erosion-to-health pathway itself (`HEALTH_EROSION_RATE`/`DEATH_ZONE_RATE` scaling with
+caloric deficit), which no amount of pre-loaded knowledge changes if the harsh winter economics
+kill a resident on the same timeline regardless. The trap remains open; the next attempt needs
+to touch that erosion pathway directly (not disease, not pressure, not discovery odds) --
+carefully, given every previous direct attempt at winter numbers has either caused chaos-
+divergence extinctions or produced zero measured benefit.
+
 Real historical pattern that falls out of this without any new "raiding party" object: nomadic
 winter raiding (see decide()'s `NOMADIC WINTER RAID` block, RFC-0007) -- since
 `animal_husbandry` is now cold-zone-exclusive, knowing it alone proves pastoral origin, and a
