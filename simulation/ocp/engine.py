@@ -2008,7 +2008,7 @@ def _step_toward(rx, ry, tx, ty, grid):
     return ('rest', None, None, None)
 
 
-def decide(r, grid, residents, tick, pressure=0.0, buckets=None, group_root=None):
+def decide(r, grid, residents, tick, pressure=0.0, buckets=None, group_root=None, zone_pressure=None):
     radius = r.view_radius() + int(r.traits.sociability * 2)
     # _nearby_cells is O(radius^2) (a grid-cell bounding-box scan, not bucketable the same way
     # as residents) -- view_radius() can reach 60-65 at high perception/sociability, making a
@@ -2270,7 +2270,17 @@ def decide(r, grid, residents, tick, pressure=0.0, buckets=None, group_root=None
     # (measured by malnutrition_debt) directly suppresses individual fecundity even when energy
     # is momentarily sufficient, reflecting real physiological depletion from past caloric stress.
     if r.energy > REPRODUCTION_ENERGY and r.age > REPRODUCTION_AGE and _is_fertile(r, tick):
-        fertility = max(0.0, 1.0 - (pressure - 1.0) * 0.5)
+        # A cold-zone resident's own fertility uses their zone's own pressure (see
+        # Simulation._zone_pressure, COLD_ZONE_EROSION_MULT's comment) instead of the global
+        # self._pressure -- otherwise a nearly-empty cold zone's residents had their
+        # reproduction chance suppressed by temperate/tropical crowding they have nothing to
+        # do with, the same class of unfairness already fixed for calorie-erosion/disease.
+        # Scoped to cold only, same low-blast-radius pattern as those fixes (not extended to
+        # temperate/tropical, where the earlier all-zones regional-pressure attempt caused real
+        # extinctions from exposing those zones to their own, often-higher, local pressure).
+        fertility_pressure = (zone_pressure['cold'] if zone_pressure and climate_zone(r.y) == 'cold'
+                               else pressure)
+        fertility = max(0.0, 1.0 - (fertility_pressure - 1.0) * 0.5)
         # Malnutrition debt reduces fertility: a resident at full debt (100.0) has fertility halved
         # Additionally, if malnutrition debt exceeds a critical threshold, reproduction is impossible
         if r.malnutrition_debt > 60.0:
@@ -3815,7 +3825,7 @@ class Simulation:
                              'x': r.x, 'y': r.y})
             else:
                 action, tx, ty, tid = decide(r, self.grid, living, tick, self._pressure, resident_buckets,
-                                              getattr(self, '_group_root', {}))
+                                              getattr(self, '_group_root', {}), getattr(self, '_zone_pressure', None))
 
             msg = None
             _energy_before_action = r.energy

@@ -696,6 +696,34 @@ this isn't the clean "healthy baseline collapses under the change" pattern seen 
 reverted attempts -- more a seed already near its own edge getting tipped over. Shipped given
 the scale of the improvement and that context.
 
+### Cold Zone Fertility (same architectural bug, different mechanic)
+
+Direct feedback after the erosion fix: cold-zone population still wasn't sustaining growth --
+survival got measurably better across every fix above, but the population still spikes then
+crashes back toward zero rather than settling into steady growth. Root cause, found by
+re-reading the REPRODUCE block in `decide()`: fertility (`fertility = max(0.0, 1.0 - (pressure -
+1.0) * 0.5)`) was reading the same GLOBAL `self._pressure` the calorie-erosion fix had already
+identified and fixed for health/disease -- a nearly-empty cold zone's residents had their
+*reproduction chance*, not just their survival odds, suppressed by however crowded temperate/
+tropical happened to be, the identical unfairness in a different mechanic. `decide()` now
+accepts an optional `zone_pressure` dict (`Simulation._zone_pressure`, already computed every
+tick); a cold-zone resident's fertility uses `zone_pressure['cold']` instead of the global
+`pressure` parameter. Scoped to cold only, same low-blast-radius pattern as every other zone-
+specific fix this session -- temperate/tropical fertility is untouched.
+
+Verified across 10 seeds: 9 survived cleanly, one (seed 7) dropped to a fragile-but-not-extinct
+8. The cold-zone diagnostic showed husbandry holders peak at a new high (106) and
+`max_cold_streak` reach 93, both consistent with the ongoing trend -- but honestly, the
+underlying "spikes then crashes back to zero" pattern persists even with this fix. This is a
+real, correct architectural fix (the same class of bug already proven real for erosion/disease),
+not a placebo, but it wasn't the missing piece that makes the cold zone durably self-sustaining
+on its own -- after five compounding zone-scoped fixes (disease, regional pressure, founding
+herders, forage radius, horse bonuses, erosion, now fertility), the pattern of "better peaks,
+still no durable equilibrium" suggests the remaining gap may not be a single remaining
+parameter at all, but something more structural about how a sparse, spread-out population
+finds mates/reproduces at low density, or requires a fundamentally different diagnostic pass
+before the next attempt.
+
 Real historical pattern that falls out of this without any new "raiding party" object: nomadic
 winter raiding (see decide()'s `NOMADIC WINTER RAID` block, RFC-0007) -- since
 `animal_husbandry` is now cold-zone-exclusive, knowing it alone proves pastoral origin, and a
