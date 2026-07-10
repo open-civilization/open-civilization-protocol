@@ -600,6 +600,27 @@ to touch that erosion pathway directly (not disease, not pressure, not discovery
 carefully, given every previous direct attempt at winter numbers has either caused chaos-
 divergence extinctions or produced zero measured benefit.
 
+**Wider cold-zone forage search radius (first real improvement).** Per direct request: instead
+of touching the regrow *rate* (the lever behind every earlier failed/insufficient attempt),
+widen how far a resident standing in the cold zone can *search* for food. Real wild game is
+genuinely present across the cold zone, just sparser per cell than a temperate farm plot, so a
+forager there should be able to search further to find it. `COLD_ZONE_FORAGE_CELL_CAP` (9, up
+from `PERCEPTION_CELL_CAP`'s 4) widens the existing `_best_food`/CRITICAL-HUNGRY search-a-cell-
+then-`_step_toward`-it mechanism specifically for cold-zone residents -- the same mechanism
+already used for merchants/gifted scouts, applied to a zone instead of a rare trait. Cells don't
+move, so this carries none of the persistent-re-targeting risk a resident-chasing mechanic
+would.
+
+This is the first cold-zone intervention this session to show a clear, measured improvement:
+`max_cold_streak` (longest any resident stayed continuously in the cold zone) rose from 80/81 to
+96, with cold-zone population peaking at 32 and husbandry holders at 74 early in the test run
+(previous attempts never exceeded roughly 10-18). It comes with a real, confirmed cost: one seed
+(42, previously a reliable "canary" that caught the `SINGLE_CATEGORY_ENERGY_CAP` regression)
+dropped from a healthy 1171 to a fragile-but-not-extinct 22, verified via same-seed A/B control
+as a direct causal effect of this specific change, not RNG-chaos noise. The other 9 of 10 test
+seeds stayed healthy. Shipped after disclosing the tradeoff -- accepted as the cost of the
+session's first real progress on this problem.
+
 Real historical pattern that falls out of this without any new "raiding party" object: nomadic
 winter raiding (see decide()'s `NOMADIC WINTER RAID` block, RFC-0007) -- since
 `animal_husbandry` is now cold-zone-exclusive, knowing it alone proves pastoral origin, and a

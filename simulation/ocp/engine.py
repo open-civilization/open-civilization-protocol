@@ -363,6 +363,19 @@ PERCEPTION_CELL_CAP = 4    # lowered further from 12 per direct request -- 81 ce
                            # of total tick time once population grew into the many hundreds.
                            # Resident-search radius (near_res, social/reproduction range) is
                            # unaffected -- only the terrain/food-cell scan is capped.
+COLD_ZONE_FORAGE_CELL_CAP = 9  # wider terrain-scan radius for anyone standing in the cold zone
+                           # (see cell_radius in decide()), same mechanism already used for
+                           # merchants/gifted scouts (MERCHANT_CELL_CAP/GIFTED_SCOUT_CELL_CAP)
+                           # applied to a whole zone instead of a rare trait. Direct request: real
+                           # wild game is genuinely present across the cold zone (just sparser per
+                           # cell than a temperate farm plot), so a forager there should be able to
+                           # search further to find it rather than being capped to the same tight
+                           # local radius as someone standing on cultivated temperate farmland.
+                           # Deliberately just widens the EXISTING _best_food/CRITICAL-HUNGRY
+                           # search-a-cell-then-_step_toward-it pattern (cells don't move, so this
+                           # carries none of the persistent-re-targeting risk a resident-chasing
+                           # mechanic would) -- not a new mechanic, not a regrow-rate change (see
+                           # the reverted winter-regrow attempt's RNG-divergence postmortem).
 MAX_HEALTH = 100.0
 SEASON_LENGTH = 8
 TRAIT_MUTATION = 0.15
@@ -1955,7 +1968,8 @@ def decide(r, grid, residents, tick, pressure=0.0, buckets=None, group_root=None
     # exceed GIFTED_SCOUT_TRAIT_THRESHOLD) that this doesn't reintroduce the perf problem
     # PERCEPTION_CELL_CAP fixed for the general population.
     scout_cap = GIFTED_SCOUT_CELL_CAP if r.is_gifted_scout() else (
-        MERCHANT_CELL_CAP if r.is_merchant() else PERCEPTION_CELL_CAP)
+        MERCHANT_CELL_CAP if r.is_merchant() else (
+            COLD_ZONE_FORAGE_CELL_CAP if climate_zone(r.y) == 'cold' else PERCEPTION_CELL_CAP))
     cell_radius = min(radius, scout_cap)
     cells = _nearby_cells(r.x, r.y, cell_radius, grid)
     near_res = _nearby_residents(r.x, r.y, radius, residents, buckets)
