@@ -448,25 +448,40 @@ equilibrium, and the intended effect: population pressure is exactly the conditi
 a diet-diverse trade partner (see `is_merchant`, RFC-0007) worth the risk of approaching, so a
 population that stays comfortably under its ceiling should never feel this tax at all.
 
-**A hard ceiling, not just a multiplier**: a multiplicative penalty alone (everything above)
-only reduces per-forage *efficiency* -- it doesn't stop a strong forager sitting on abundant
-biomass from simply out-harvesting the penalty in absolute kcal, buying back what a monotonous
-diet costs by gathering more of the same thing rather than actually diversifying. Per direct
-request, `SINGLE_CATEGORY_ENERGY_CAP` adds a hard per-tick kcal ceiling on top of the
-multiplier when the recent diet is a single category, independent of stockpile, biomass
-abundance, or forager strength -- no volume of one food type substitutes for real variety.
+**A hard ceiling, not just a multiplier (tried, reverted)**: a multiplicative penalty alone
+(everything above) only reduces per-forage *efficiency* -- it doesn't stop a strong forager
+sitting on abundant biomass from simply out-harvesting the penalty in absolute kcal, buying
+back what a monotonous diet costs by gathering more of the same thing rather than actually
+diversifying. Per direct request, `SINGLE_CATEGORY_ENERGY_CAP` added a hard per-tick kcal
+ceiling on top of the multiplier when the recent diet is a single category, independent of
+stockpile, biomass abundance, or forager strength.
+
 First tried at 400 kcal: a Monte-Carlo sample of the actual pre-cap gain formula (varying
 `traits.strength`, the harvest roll, and `salt_mult`) showed the median single-category gain
 already sits around 260-290 and the 90th percentile around 440, so 400 was clipping a large
-share of *ordinary* foraging, not an outlier tail -- a 3-seed local test confirmed this,
-showing 2 of 3 seeds decline steadily toward near-extinction (473->38, 496->110) rather than
-crashing outright, consistent with a median-level tax rather than a rare clip. Recalibrated to
-700 (above the ~99th percentile of the same sample, max observed ~675) so it only clips
-genuinely exceptional strength+harvest+salt combinations. Verified safe across the same 3
-seeds at 700: zero extinctions, though population settled measurably lower across all three
-(198/239/129 vs. the pressure-gated-only baseline's 252/520/143) -- a real, felt tightening
-on top of the pressure-gated multiplier, not just a safety-net clip, and an accepted tradeoff
-per the request.
+share of *ordinary* foraging -- a 3-seed local test confirmed it, showing 2 of 3 seeds decline
+toward near-extinction. Recalibrated to 700 (above the ~99th percentile of the same sample) and
+shipped after the 3-seed suite came back clean.
+
+**It wasn't actually safe.** A later investigation (prompted by `avg_diet_diversity` still not
+improving on the live server) tested seed 42 -- a long-used, previously stable seed that had
+simply never been included in the 3-seed regression suite -- and found it went fully extinct
+under the shipped 700 cap (tick 981, visible decline from tick 300 onward). Bisection across
+the session's 5 diet/trade commits confirmed the cap, and only the cap, as the cause. The
+Monte-Carlo calibration's mistake: it measured a population-wide percentile by drawing a fresh
+random `traits.strength` for each sample, which describes how many *individuals* in a snapshot
+exceed a given gain -- not how often any ONE individual gets clipped over their actual
+lifetime. `traits.strength` is fixed per resident, so a genuinely strong forager's harvest sits
+above the cap on nearly *every* single-category tick, not as a rare outlier. A flat ceiling
+therefore acts as a persistent tax specifically on the population's strongest/most productive
+foragers -- precisely the individuals the rest of the group's provisioning economy (mate
+provisioning, food-share, follower tribute) depends on -- producing a slow cascading decline
+rather than an obvious sharp shock, which is exactly why a small regression suite missed it.
+Fully reverted; confirmed seed 42 (and seeds 1-3, all measurably healthier than under the cap)
+survive without it. Any future version of this idea needs to scale with the individual's own
+capability (e.g. relative to their own diverse-diet ceiling), not a single population-wide flat
+number, and needs a wider seed sample specifically because this failure mode is gradual and
+individual-dependent rather than an obvious immediate crash.
 
 A settlement anywhere is realistically limited to whatever staples its local terrain suits, so
 sustained high output requires either genuine local variety (farm + herd + fish) or exchange
