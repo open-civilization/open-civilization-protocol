@@ -732,7 +732,22 @@ SALT_FOOD_BONUS_MULT = 1.15  # real historical role: salt is a preservative, not
                                # already-thin margin into a genuine death spiral. 1.15/0.85 is the
                                # calibrated ceiling until salt prevalence rises substantially
                                # further on its own.
-SALT_DEFICIT_MULT = 0.85     # symmetric penalty for holding none -- see the note above.
+SALT_DEFICIT_MULT = 0.85     # symmetric penalty for holding none -- see the note above. Also
+                               # tried widened alone to 0.8 (bonus left at 1.15, isolating it
+                               # from the earlier combined 1.3/0.7 attempt) on direct request:
+                               # still unsafe -- seed 2 went fully extinct at tick 541, the same
+                               # seed that also failed under two separate, unrelated
+                               # diet-imbalance tightening attempts (DIET_CATEGORY_MULT[1] at
+                               # 0.55 and 0.6) tried the same session. That seed is healthy under
+                               # every current baseline value, so this isn't one fragile seed --
+                               # it's a real signal that the population's margin for ANY
+                               # additional tightening on the "eat well" energy budget is
+                               # already thin right now, across multiple independent
+                               # multipliers. Reverted; further attempts at a stronger
+                               # imbalance penalty via broad forage multipliers should assume
+                               # very little headroom exists and verify extensively (more than
+                               # 3 seeds) before shipping, or use a different mechanism
+                               # entirely rather than tightening an existing near-universal tax.
 IRRIGATION_DISCOVERY_CHANCE = 0.003    # per tick, requires crop_cultivation + water-adjacent cell
 IRRIGATION_MULT = 1.5
 BREEDING_DISCOVERY_CHANCE = 0.002      # per tick, requires deep crop_cultivation mastery

@@ -414,11 +414,16 @@ healthy 300-900 baseline. The single-category tier is most residents' baseline f
 of the time, not a rare edge case, so it compounds directly into the population's core energy
 budget -- this lever appears to have very little safe headroom below 0.7; a different mechanism
 is probably needed to make imbalance sting harder without risking collapse. Salt multiplies on
-top of the diet multiplier,
-separately: 1.15x if held, 0.85x deficit otherwise (`SALT_FOOD_BONUS_MULT`/`SALT_DEFICIT_MULT`
--- a wider 1.3/0.7 spread was tried and reverted after it collapsed a local test population to
-18 residents by tick 800; the two multipliers compound, so pushing both further apart at once is
-riskier than it looks).
+top of the diet multiplier, separately: 1.15x if held, 0.85x deficit otherwise
+(`SALT_FOOD_BONUS_MULT`/`SALT_DEFICIT_MULT` -- a wider 1.3/0.7 spread was tried and reverted
+after it collapsed a local test population to 18 residents by tick 800; the two multipliers
+compound, so pushing both further apart at once is riskier than it looks). The deficit side was
+also tried widened *alone* to 0.8 (bonus untouched at 1.15, isolating it from the earlier
+combined attempt) and still isn't safe: one of the same 3 test seeds went fully extinct at tick
+541. That seed survives fine under every current baseline value and had already separately
+failed under both diet-imbalance attempts above -- a real cross-mechanism signal, not one
+fragile seed, that the population's margin for additional tightening on the "eat well" energy
+budget is thin right now regardless of which specific multiplier is the lever.
 Salt's own suitability is separate again: reachable at any water tile, but the island is ten
 times richer, and it's excluded entirely from the cold zone (`SALT_WATER_SUITABILITY`/
 `SALT_ISLAND_SUITABILITY`).
