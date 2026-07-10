@@ -428,6 +428,26 @@ Salt's own suitability is separate again: reachable at any water tile, but the i
 times richer, and it's excluded entirely from the cold zone (`SALT_WATER_SUITABILITY`/
 `SALT_ISLAND_SUITABILITY`).
 
+**Pressure-gated deepening (the version that actually shipped)**: all three flat-multiplier
+attempts above failed by hitting a small/founding population exactly as hard as a large,
+established one -- the single-category tier is most residents' baseline state much of the time,
+so any flat tightening taxes the population's thinnest, most fragile phase (early growth) just
+as much as its most resilient phase (large, past its initial bottleneck). The fix wasn't a
+smaller number, it was gating the extra penalty on `Simulation._pressure` (population /
+carrying capacity, already computed every tick, see the Malthusian Trap section of RFC-0007):
+below `DIET_IMBALANCE_PRESSURE_THRESHOLD` (1.0, i.e. population at or under carrying capacity)
+the single-category tier stays at the safe flat 0.7x; above it, an extra penalty ramps in
+linearly over `DIET_IMBALANCE_PRESSURE_RAMP` (1.0 pressure-unit) up to
+`DIET_IMBALANCE_MAX_EXTRA_PENALTY` (0.15 -- the same magnitude as the 0.55 flat attempt that
+failed catastrophically at every pressure level). Verified across the same 3 seeds used for
+every prior attempt: zero extinctions, including the one seed that had failed under all three
+flat-multiplier attempts above (fully recovered to a healthy trajectory once the founding-phase
+penalty was removed). One seed did settle into a lower sustained population plateau once
+persistently crowded rather than its usual range -- not a collapse, a real self-limiting
+equilibrium, and the intended effect: population pressure is exactly the condition meant to make
+a diet-diverse trade partner (see `is_merchant`, RFC-0007) worth the risk of approaching, so a
+population that stays comfortably under its ceiling should never feel this tax at all.
+
 A settlement anywhere is realistically limited to whatever staples its local terrain suits, so
 sustained high output requires either genuine local variety (farm + herd + fish) or exchange
 with a differently-specialized settlement (see RFC-0007 for the trade trigger this connects to,

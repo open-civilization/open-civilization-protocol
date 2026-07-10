@@ -614,7 +614,10 @@ FOOD_CATEGORY = {
     'grazer': 'meat', 'browser': 'meat',
     'fish': 'fish',
 }
-DIET_CATEGORY_MULT = {1: 0.7, 2: 1.2, 3: 1.5}  # keyed by count of distinct categories eaten.
+DIET_CATEGORY_MULT = {1: 0.7, 2: 1.2, 3: 1.5}  # keyed by count of distinct categories eaten
+                                                  # recently (crop/meat/fish/wild, capped at 3
+                                                  # real categories -- wild doesn't add a 4th
+                                                  # tier on top, see _do_forage).
                                                   # Deepening this (making dietary imbalance
                                                   # sting harder) was tried twice on direct
                                                   # request and reverted both times:
@@ -631,14 +634,26 @@ DIET_CATEGORY_MULT = {1: 0.7, 2: 1.2, 3: 1.5}  # keyed by count of distinct cate
                                                   # baseline forage rate much of the time (not a
                                                   # rare edge case), so it compounds directly
                                                   # into the population's core energy budget --
-                                                  # this specific lever appears to have very
-                                                  # little safe headroom below 0.7. A different
-                                                  # mechanism (not this multiplier) is probably
-                                                  # needed to make imbalance sting harder without
-                                                  # risking collapse.
-                                                  # recently (crop/meat/fish/wild, capped at 3
-                                                  # real categories -- wild doesn't add a 4th
-                                                  # tier on top, see _do_forage)
+                                                  # a FLAT deepening has very little safe headroom
+                                                  # below 0.7. See DIET_IMBALANCE_PRESSURE_* below
+                                                  # for a pressure-gated version instead (only
+                                                  # penalize harder once the population is
+                                                  # actually crowded, not from the founding ticks).
+DIET_IMBALANCE_PRESSURE_THRESHOLD = 1.0  # below this pressure (see Simulation._pressure), the
+                                           # single-category tier stays at the safe flat 0.7 --
+                                           # a small/founding population is never hit by the
+                                           # extra penalty, only a population actually pressing
+                                           # on its carrying ceiling is.
+DIET_IMBALANCE_MAX_EXTRA_PENALTY = 0.15  # additional multiplicative penalty, fully phased in by
+                                           # DIET_IMBALANCE_PRESSURE_RAMP above the threshold --
+                                           # deliberately the same magnitude as the flat 0.55
+                                           # attempt that failed catastrophically at ALL pressure
+                                           # levels (see above); gating it to only fire once
+                                           # pressure is already elevated is the actual
+                                           # hypothesis under test, not a smaller number.
+DIET_IMBALANCE_PRESSURE_RAMP = 1.0       # pressure units over which the extra penalty phases in
+                                           # (linear from 0 at the threshold to full at
+                                           # threshold + ramp)
 
 # Mineral resources — non-food, tradeable/raidable goods rather than a caloric energy source.
 # Cold-zone-dominant real geology (coal seams, iron-bearing rock, oil deposits concentrate in
@@ -2276,7 +2291,7 @@ def _do_move(r, tx, ty, grid):
     return None
 
 
-def _do_forage(r, grid, tick, same_cell_residents=None):
+def _do_forage(r, grid, tick, same_cell_residents=None, pressure=0.0):
     cell = grid[r.y][r.x]
     if cell.biomass <= 0 and cell.leftover <= 0:
         return None
@@ -2503,6 +2518,14 @@ def _do_forage(r, grid, tick, same_cell_residents=None):
         distinct_categories = {FOOD_CATEGORY.get(t, 'wild') for t, last in r.recent_food_types.items()
                                 if tick - last <= DIET_DIVERSITY_WINDOW}
         diet_mult = DIET_CATEGORY_MULT.get(min(len(distinct_categories), 3), 0.7)
+        # Pressure-gated extra penalty on the single-category (most imbalanced) tier only -- see
+        # DIET_IMBALANCE_PRESSURE_THRESHOLD. A small/founding population (pressure below the
+        # threshold) is never touched; only once the population is genuinely crowded does staying
+        # on one food category start costing extra, which is also exactly when a diet-diverse
+        # trade partner (see is_merchant/SOCIAL block) becomes worth the risk of approaching.
+        if len(distinct_categories) <= 1 and pressure > DIET_IMBALANCE_PRESSURE_THRESHOLD:
+            ramp = min(1.0, (pressure - DIET_IMBALANCE_PRESSURE_THRESHOLD) / DIET_IMBALANCE_PRESSURE_RAMP)
+            diet_mult -= DIET_IMBALANCE_MAX_EXTRA_PENALTY * ramp
 
         salt_mult = SALT_FOOD_BONUS_MULT if r.resources.get('salt', 0) > 0 else SALT_DEFICIT_MULT
         gain = harvest * conversion * sex_mult * diet_mult * salt_mult
@@ -3465,7 +3488,7 @@ class Simulation:
             if action == 'move':
                 msg = _do_move(r, tx, ty, self.grid)
             elif action == 'forage':
-                msg = _do_forage(r, self.grid, tick, same_cell_residents.get((r.x, r.y)))
+                msg = _do_forage(r, self.grid, tick, same_cell_residents.get((r.x, r.y)), self._pressure)
             elif action == 'rest':
                 r.health = min(MAX_HEALTH, r.health + 2.5 * r.traits.endurance)
             elif action == 'interact':
