@@ -405,13 +405,16 @@ distinct-archetype-count formula to three real food categories -- crop, meat, fi
 (`FOOD_CATEGORY`; salt stays entirely separate, see below) -- since a specific crop_type (wheat
 vs rice) doesn't functionally differ enough to matter, only whether the actual food GROUP
 varies: `DIET_CATEGORY_MULT` gives 0.7x for one category (including wild-only foraging), 1.2x
-for two, 1.5x for all three. The single-category penalty was tried at a deeper 0.55 (on direct
-request to make imbalance sting harder) and reverted: a 3-seed local test showed 2 of 3 seeds
-going fully extinct and the third pinned at 79-250 population, far below the healthy 300-900
-baseline range, consistently across all seeds (not single-seed RNG noise). The single-category
-tier is most residents' baseline forage rate much of the time, not a rare edge case, so it
-compounds directly into the population's core energy budget -- any further tightening needs a
-much smaller step than a 0.15 absolute drop. Salt multiplies on top of the diet multiplier,
+for two, 1.5x for all three. Deepening the single-category penalty (making imbalance sting
+harder) was tried twice on direct request and reverted both times: 0.55 sent 2 of 3 seeds fully
+extinct and pinned the third at 79-250 population; the smaller step to 0.6 still sent 1 of 3
+seeds extinct, confirmed via a same-seed A/B control (that exact seed survives fine to pop 648
+at 0.7, ruling out "just a fragile seed"), with the other two also running measurably below the
+healthy 300-900 baseline. The single-category tier is most residents' baseline forage rate much
+of the time, not a rare edge case, so it compounds directly into the population's core energy
+budget -- this lever appears to have very little safe headroom below 0.7; a different mechanism
+is probably needed to make imbalance sting harder without risking collapse. Salt multiplies on
+top of the diet multiplier,
 separately: 1.15x if held, 0.85x deficit otherwise (`SALT_FOOD_BONUS_MULT`/`SALT_DEFICIT_MULT`
 -- a wider 1.3/0.7 spread was tried and reverted after it collapsed a local test population to
 18 residents by tick 800; the two multipliers compound, so pushing both further apart at once is

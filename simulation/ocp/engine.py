@@ -615,21 +615,27 @@ FOOD_CATEGORY = {
     'fish': 'fish',
 }
 DIET_CATEGORY_MULT = {1: 0.7, 2: 1.2, 3: 1.5}  # keyed by count of distinct categories eaten.
-                                                  # 1 was tried at 0.55 (deepened on direct
-                                                  # request to make imbalance sting harder):
-                                                  # 3-seed local test showed 2 of 3 seeds going
-                                                  # fully extinct (tick 295, tick 873) and the
-                                                  # third pinned at 79-250 pop, far below the
-                                                  # healthy 300-900 baseline range -- consistent
-                                                  # across all 3 seeds, not single-seed noise, so
-                                                  # reverted. The single-category tier is already
-                                                  # everyone's baseline forage rate much of the
-                                                  # time (most residents only ever reach one food
-                                                  # category), so it compounds directly into the
-                                                  # population's core energy budget rather than
-                                                  # being a rare edge-case penalty -- any further
-                                                  # tightening needs a much smaller step and to
-                                                  # be tested well past 0.6 before going lower.
+                                                  # Deepening this (making dietary imbalance
+                                                  # sting harder) was tried twice on direct
+                                                  # request and reverted both times:
+                                                  #   0.55 -> 2 of 3 seeds fully extinct (tick
+                                                  #   295, tick 873), third pinned at 79-250 pop.
+                                                  #   0.6  -> 1 of 3 seeds fully extinct (tick
+                                                  #   1171, confirmed via same-seed A/B control:
+                                                  #   that exact seed survives fine to pop 648 at
+                                                  #   0.7, so the extinction is caused by the
+                                                  #   0.6 change, not a fragile-seed artifact),
+                                                  #   the other two seeds also ran measurably
+                                                  #   below the healthy 300-900 baseline range.
+                                                  # The single-category tier is most residents'
+                                                  # baseline forage rate much of the time (not a
+                                                  # rare edge case), so it compounds directly
+                                                  # into the population's core energy budget --
+                                                  # this specific lever appears to have very
+                                                  # little safe headroom below 0.7. A different
+                                                  # mechanism (not this multiplier) is probably
+                                                  # needed to make imbalance sting harder without
+                                                  # risking collapse.
                                                   # recently (crop/meat/fish/wild, capped at 3
                                                   # real categories -- wild doesn't add a 4th
                                                   # tier on top, see _do_forage)
