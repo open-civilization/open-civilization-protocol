@@ -448,6 +448,17 @@ equilibrium, and the intended effect: population pressure is exactly the conditi
 a diet-diverse trade partner (see `is_merchant`, RFC-0007) worth the risk of approaching, so a
 population that stays comfortably under its ceiling should never feel this tax at all.
 
+Deepened again from 0.15 to 0.2 on direct request, now that the supply side has real teeth
+(closed trade-diet loop, boosted crop-surplus production, merchant-seeks-chief) -- same gated
+structure untouched (`DIET_IMBALANCE_PRESSURE_THRESHOLD`/`_RAMP` unchanged, so a small/founding
+population is still never touched). Verified across 10 seeds this time (1, 2, 3, 4, 5, 6, 7, 8,
+9, 42 -- widened past the original 3-seed suite specifically because that suite had already
+missed one real regression this session, see `SINGLE_CATEGORY_ENERGY_CAP`'s postmortem below):
+zero extinctions, and most seeds' final population came out identical or near-identical to the
+0.15 baseline, meaning the deeper penalty rarely changed a seed's actual trajectory at the
+pressure levels these runs reached -- a low-risk deepening given how the gating already
+protects the population's most fragile phase.
+
 **A hard ceiling, not just a multiplier (tried, reverted)**: a multiplicative penalty alone
 (everything above) only reduces per-forage *efficiency* -- it doesn't stop a strong forager
 sitting on abundant biomass from simply out-harvesting the penalty in absolute kcal, buying

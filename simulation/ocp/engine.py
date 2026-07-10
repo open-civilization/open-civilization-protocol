@@ -644,7 +644,7 @@ DIET_IMBALANCE_PRESSURE_THRESHOLD = 1.0  # below this pressure (see Simulation._
                                            # a small/founding population is never hit by the
                                            # extra penalty, only a population actually pressing
                                            # on its carrying ceiling is.
-DIET_IMBALANCE_MAX_EXTRA_PENALTY = 0.15  # additional multiplicative penalty, fully phased in by
+DIET_IMBALANCE_MAX_EXTRA_PENALTY = 0.2   # additional multiplicative penalty, fully phased in by
                                            # DIET_IMBALANCE_PRESSURE_RAMP above the threshold --
                                            # deliberately the same magnitude as the flat 0.55
                                            # attempt that failed catastrophically at ALL pressure
