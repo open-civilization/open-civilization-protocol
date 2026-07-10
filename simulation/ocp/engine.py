@@ -648,6 +648,23 @@ TRADE_CHANCE = 0.2               # per qualifying interaction
 TRADE_SURPLUS_FLOOR = 2.0        # must hold at least this much of a good before considering a gift
 TRADE_GIFT_FRACTION = 0.25       # fraction of the surplus given away per successful trade
 
+# Merchant profit redistribution (see is_merchant, RFC-0004) — a merchant who completes a real
+# two-way barter (their own local surplus for the other party's, see _maybe_trade) earns a
+# modest flat kcal margin on top of the physical goods exchanged, representing the practical
+# value of matching a local glut against a local shortage -- comparable in size to a scavenge
+# yield (observed live: 88-219 kcal), not a windfall. Per the same redistribution-not-
+# accumulation stance as chief_standing/FOLLOWER_TRIBUTE_SHARE, the merchant doesn't keep this:
+# most goes to a bonded chief-standing ally (identical voluntary-tribute pattern), the rest is
+# split among the merchant's own living, bonded children (bonded, not just biological -- a
+# merchant only provisions children they're still in contact with, same logic as any other
+# bonded transfer in this engine). Both legs count toward the merchant's own
+# energy_given_away, so a sufficiently successful merchant can build real chief_standing this
+# way -- an emergent merchant-to-chief path, not an authored one. No currency/price object is
+# introduced (see RFC-0007 Non-Goals) -- the "price" is just this flat margin plus the existing
+# surplus/deficit-gated barter ratio already in _maybe_trade.
+MERCHANT_TRADE_PROFIT_KCAL = 120.0
+MERCHANT_PROFIT_CHIEF_SHARE = 0.65   # majority to the chief if bonded to one, remainder to children
+
 # Agricultural technology ladder — each tier multiplies the land's energy-density ceiling
 # further, mirroring the real historical trajectory (irrigation civilizations, then
 # selective breeding of higher-yield varieties over generations, then industrial-era
@@ -2555,12 +2572,17 @@ def _maybe_discover_language(r, target, tick, pressure, cooperative=False):
     return None
 
 
-def _maybe_trade(r, target, tick):
+def _maybe_trade(r, target, tick, residents_by_id=None):
     """Opportunistic exchange of surplus resources (crops/minerals) between two residents who
     happen to meet — not a scripted trade route (RFC-0007 explicitly forbids that), just
     individual reciprocity extended to named goods the same way food-sharing already works for
     calories. A resident with real surplus of something the other visibly lacks may give some
-    away; this is a one-off gift-style exchange, not a negotiated barter."""
+    away; for ordinary residents this is a one-off gift-style exchange, not a negotiated barter.
+
+    Merchants (is_merchant, RFC-0004) go further: they complete the reciprocal leg too (the
+    target's own surplus-vs-r's-deficit good comes back), turning the gift into a real barter,
+    and earn a profit margin on it (see MERCHANT_TRADE_PROFIT_KCAL) that gets redistributed
+    rather than kept — see the constant's comment for why."""
     if not r.resources or random.random() >= TRADE_CHANCE:
         return None
     candidates = [
@@ -2575,6 +2597,45 @@ def _maybe_trade(r, target, tick):
     r.resources[good] -= accepted
     r.bonds[target.id].quality = min(1.0, r.bonds[target.id].quality + 0.15)
     target.bonds[r.id].quality = min(1.0, target.bonds[r.id].quality + 0.15)
+
+    if r.is_merchant() and residents_by_id is not None:
+        back_candidates = [
+            name for name, qty in target.resources.items()
+            if name != good and qty > TRADE_SURPLUS_FLOOR and r.resources.get(name, 0.0) < qty * 0.3
+        ]
+        if back_candidates:
+            back_good = random.choice(back_candidates)
+            back_gift = target.resources[back_good] * TRADE_GIFT_FRACTION
+            back_accepted = _add_resource(r, back_good, back_gift)
+            target.resources[back_good] -= back_accepted
+            if back_accepted > 0:
+                chief_ally = None
+                for bid, bond in r.bonds.items():
+                    if bond.quality > 0:
+                        candidate = residents_by_id.get(bid)
+                        if candidate is not None and candidate.alive and candidate.has_chief_standing():
+                            chief_ally = candidate
+                            break
+                bonded_children = [
+                    residents_by_id[bid] for bid, bond in r.bonds.items()
+                    if bond.quality > 0 and bid in residents_by_id and residents_by_id[bid].alive
+                    and residents_by_id[bid].id != target.id
+                    and r.id in (residents_by_id[bid].mother_id, residents_by_id[bid].father_id)
+                ]
+                chief_cut = MERCHANT_TRADE_PROFIT_KCAL * MERCHANT_PROFIT_CHIEF_SHARE
+                child_pool = MERCHANT_TRADE_PROFIT_KCAL - chief_cut
+                if chief_ally is not None:
+                    chief_ally.energy = min(MAX_ENERGY, chief_ally.energy + chief_cut)
+                    r.energy_given_away += chief_cut
+                else:
+                    r.energy = min(MAX_ENERGY, r.energy + chief_cut)
+                if bonded_children:
+                    share = child_pool / len(bonded_children)
+                    for child in bonded_children:
+                        child.energy = min(MAX_ENERGY, child.energy + share)
+                    r.energy_given_away += child_pool
+                else:
+                    r.energy = min(MAX_ENERGY, r.energy + child_pool)
     return f'{r.name} traded {good} with {target.name}'
 
 
@@ -2626,7 +2687,7 @@ def _do_interact(r, target_id, residents_by_id, tick, pressure=0.0):
 
     # Trade — same emergent, individual-level pattern as food-sharing above, but for named
     # crop/mineral resources rather than calories; see _maybe_trade.
-    trade_msg = _maybe_trade(r, target, tick)
+    trade_msg = _maybe_trade(r, target, tick, residents_by_id)
     if trade_msg:
         return trade_msg
 
@@ -2926,8 +2987,13 @@ class Simulation:
             }
         # Write to a temp file and atomically rename over the real path (os.replace is atomic
         # on POSIX) -- a crash or kill mid-write must never leave a half-written snapshot as
-        # the file load_or_create finds on next startup.
-        tmp_path = str(path) + '.tmp'
+        # the file load_or_create finds on next startup. tmp_path must be unique per call (pid +
+        # id()) -- this runs outside self.lock (disk I/O shouldn't block the tick loop), so the
+        # periodic auto-save timer and a manual /api/snapshot/save call can genuinely overlap;
+        # a shared tmp_path let the first os.replace consume the file out from under the second
+        # call, which then raised FileNotFoundError on ITS os.replace. Unique names mean both
+        # writes complete independently and os.replace just picks whichever lands last.
+        tmp_path = f'{path}.{os.getpid()}.{id(data)}.tmp'
         with open(tmp_path, 'w') as f:
             json.dump(data, f)
         os.replace(tmp_path, path)

@@ -250,6 +250,24 @@ is explicitly deferred, since it's exactly the persistent-distant-target shape t
 the territorial-retreat and exogamy attempts (see Hierarchies below) — it would need the same
 committed-target persistence mechanism as `scout_target`/FISSION before it's safe to try.
 
+**Merchant profit redistribution** extends the same building block: `_maybe_trade` was a
+one-way gift for ordinary residents (surplus-holder gives, no return leg), but a merchant who
+completes one now also collects the reciprocal leg — the partner's own surplus-vs-the-merchant's-
+deficit good comes back, a genuine two-way barter rather than a gift. This barter earns a flat
+kcal margin (`MERCHANT_TRADE_PROFIT_KCAL`) representing the practical value of matching a local
+glut against a local shortage. Explicitly NOT a currency or price object (see Design, below) —
+no abstract unit of account is introduced, no global price is computed; it's a fixed reward
+attached to one individual's successful match, same category of thing as a scavenge yield.
+Deliberately not kept: per the same redistribution-not-accumulation logic as `chief_standing`
+(Sahlins' Big Man model, cited above) and `FOLLOWER_TRIBUTE_SHARE`, most of the margin goes to
+a bonded chief-standing ally if the merchant has one, and the remainder is split among the
+merchant's own living, *bonded* children (bonded, not merely biological — mirrors how every
+other resource transfer in the engine only ever reaches someone already in contact, never an
+absent relative). Both legs count toward the merchant's own `energy_given_away`, so a
+successful-enough merchant accumulates real `chief_standing` themselves — an emergent
+merchant-to-chief pathway that falls out of reusing the existing standing metric, not a second
+authored ladder.
+
 ### Hierarchies
 
 - some residents consistently influencing others' behavior
