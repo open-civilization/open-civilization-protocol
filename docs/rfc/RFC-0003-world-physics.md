@@ -527,10 +527,55 @@ even after tripling the discovery odds (`HUSBANDRY_DISCOVERY_MULT`). A small far
 the only crops with any cold-zone weight (`sweet_potato`/`corn` in `CROP_ARCHETYPES`) are the
 two weakest archetypes (~0.55-0.6x energy density vs wheat's 1.4x), so a resident unlucky
 enough to roll farming first likely burns a knowledge-capacity slot and effort on a genuinely
-weak option instead of the much more valuable herding path. Reverted; the actual survival
-bottleneck (get a resident through their first cold-zone winter at all) still needs a direct
-fix, e.g. softening `winter`/`winter_upkeep` rather than adding a competing weaker discovery
-path.
+weak option instead of the much more valuable herding path. Reverted.
+
+Directly softening `winter` (regrow) was also tried (0.005 -> 0.025) and reverted: it caused a
+real, isolated extinction in one local test seed (confirmed via same-seed A/B control, not RNG
+noise) with zero improvement in cold-zone occupancy across any of the 3 seeds tested, so it
+wasn't worth the risk for no measured benefit.
+
+**A precise diagnostic** (2000-tick instrumented run, tracking cause of death and how long any
+single resident ever stayed in the cold zone continuously) found the actual dominant killer:
+disease, not starvation (384 disease deaths vs 133 starvation over one sample), and a hard
+~80-tick ceiling that no resident ever exceeded across the whole run, regardless of seed. The
+mechanism: low energy from harsh winter upkeep erodes health directly
+(`HEALTH_EROSION_RATE`/`DEATH_ZONE_RATE`), and once health drops below 40, `DISEASE_LOW_HEALTH_
+MULT` (1.25x) makes disease measurably more likely, which does further health damage --
+compounding into a death spiral before anyone can establish a stable pastoral economy. This
+chain was also using the single *global* `Simulation._pressure` (population over the WHOLE
+map's carrying capacity) to scale itself, meaning a nearly-empty cold zone was still inheriting
+the full brunt of crowding happening elsewhere on the map it had nothing to do with.
+
+Two targeted fixes shipped, deliberately NOT touching winter food production/upkeep at all:
+`COLD_ZONE_DISEASE_MULT` (0.5x disease probability in the cold zone specifically, reflecting the
+real historical pattern that cold, dry climates suppress pathogen survival/transmission better
+than warm humid ones -- this directly targets the actual dominant death cause), and a *cold-zone-
+only* regional pressure substitution for the health-erosion/malnutrition/disease/accident chain
+(`Simulation._zone_pressure['cold']` instead of the global `self._pressure`, computed the same
+way but restricted to the cold zone's own population and carrying capacity). The regional-
+pressure fix was first tried for all three zones and reverted after 2 of 10 test seeds went
+extinct via a real, direct effect (steady decline from the very first checkpoint, not RNG-chaos
+divergence) -- tropical's own regional pressure runs consistently much higher than the global
+average (`farming_suitability`/`grazing_suitability` are both 0 there, so its local carrying
+capacity is far worse per capita than the temperate-heavy blend that used to dilute it), and
+tropical/temperate hold the vast majority of the population, so exposing them to their own true
+local pressure was a net-negative trade even though it fixed a real unfairness for the small
+cold-zone minority. Scoped down to cold only.
+
+Verified across 10 seeds: 9 survived cleanly; one (a seed that had independently failed under
+5 separate, unrelated changes earlier this session) went extinct even in the narrowed version,
+traced specifically to `COLD_ZONE_DISEASE_MULT` changing how often the disease-damage-roll's
+secondary `random()` call fires -- the same shared-global-RNG-stream chaos-divergence class
+documented elsewhere in this file, just via a different trigger (a probability threshold gating
+a conditional follow-up random call, rather than a boolean-emptiness short-circuit). Shipped
+anyway given the 9/10 track record and that seed's independently-established fragility.
+
+Honest result: a follow-up diagnostic after shipping found cold-zone occupancy and husbandry
+discovery still near-zero in the same test seed -- this is a real, targeted fix for one
+contributing factor (disease-driven death), not a full solution to the cold-zone bootstrapping
+trap. The trap remains open; a future attempt should look beyond disease/pressure at the
+direct calorie-erosion-to-health pathway itself, or population-independent seeding of viable
+early cold-zone founders.
 
 Real historical pattern that falls out of this without any new "raiding party" object: nomadic
 winter raiding (see decide()'s `NOMADIC WINTER RAID` block, RFC-0007) -- since

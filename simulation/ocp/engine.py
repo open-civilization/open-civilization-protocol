@@ -413,6 +413,17 @@ DISEASE_DMG_MAX = 35
 DISEASE_LOW_HEALTH_MULT = 1.25  # lowered from 1.5 -- softens the low-health death-spiral
                                   # (once health<40, higher disease risk further lowers health,
                                   # raising risk again); still a real penalty, less self-reinforcing
+COLD_ZONE_DISEASE_MULT = 0.5    # real historical pattern: cold, dry climates suppress pathogen
+                                  # survival/transmission better than warm humid ones. Added
+                                  # after a cold-zone survival diagnostic found disease (not
+                                  # starvation) was the dominant cause of death there (384 vs 133
+                                  # over a 2000-tick sample) -- the calorie-erosion health cost of
+                                  # a harsh winter was compounding with DISEASE_LOW_HEALTH_MULT
+                                  # into a death spiral before anyone could establish a stable
+                                  # pastoral economy. Deliberately doesn't touch winter food
+                                  # production/upkeep at all (see the reverted winter-regrow
+                                  # attempt's RNG-divergence chaos postmortem) -- this targets the
+                                  # actual dominant death cause directly instead.
 # Immunity previously had NO effect on ordinary disease risk (only the separate, rarer Epidemic
 # mechanic below used it), so high- and low-immunity residents faced identical everyday disease
 # odds -- meaning inbreeding depression's penalty on immunity (see INBREEDING_FITNESS_PENALTY)
@@ -3286,19 +3297,38 @@ class Simulation:
         # Carrying capacity based on annual average food production per zone
         # (cultivated land raises the effective ceiling, same as it raises regrowth)
         total_regrow = 0
+        total_regrow_by_zone = {'cold': 0.0, 'temperate': 0.0, 'tropical': 0.0}
         for row in self.grid:
             for c in row:
                 if c.passable():
                     zone_cfg = CLIMATE_ZONES[c.climate]
                     avg_m = sum(zone_cfg[s] for s in SEASONS) / 4
                     cultivation_bonus = 1.0 + c.cultivation * CULTIVATION_MAX_BONUS * c.ag_tech_mult
-                    total_regrow += TERRAIN[c.terrain]['regrow'] * avg_m * cultivation_bonus
+                    regrow = TERRAIN[c.terrain]['regrow'] * avg_m * cultivation_bonus
+                    total_regrow += regrow
+                    total_regrow_by_zone[c.climate] += regrow
         # total_regrow is in biomass units; convert to kcal at the same base rate used when
         # biomass is actually foraged (see _do_forage) before comparing against per-person
         # daily kcal need, so this ratio stays dimensionally consistent with the energy model
         carrying_cap = max(10, (total_regrow * 38.0 * CARRYING_CAPACITY_MULT) / (BASELINE_ENERGY_COST * 8.0))
         pop = len(living)
         self._pressure = pop / max(1, carrying_cap)
+
+        # Regional pressure (see COLD_ZONE_DISEASE_MULT's comment) -- used ONLY for the
+        # calorie-erosion/malnutrition/disease chain below, not the global self._pressure that
+        # every other mechanic (diet penalty, migration, raiding, writing threshold) already
+        # relies on -- deliberately scoped to just the one problem being fixed here, not a
+        # redefinition of pressure everywhere. A cold-zone pioneer population was being punished
+        # by temperate-zone crowding it has nothing to do with: self._pressure is a single global
+        # scalar (pop / carrying_cap over the WHOLE map), so a nearly-empty cold zone still
+        # inherited the full brunt of the rest of the world being crowded.
+        pop_by_zone = {'cold': 0, 'temperate': 0, 'tropical': 0}
+        for r in living:
+            pop_by_zone[climate_zone(r.y)] += 1
+        self._zone_pressure = {}
+        for zone, zone_regrow in total_regrow_by_zone.items():
+            zone_cap = max(10, (zone_regrow * 38.0 * CARRYING_CAPACITY_MULT) / (BASELINE_ENERGY_COST * 8.0))
+            self._zone_pressure[zone] = pop_by_zone[zone] / max(1, zone_cap)
 
         # Spatial bucket index for O(k) nearby-resident queries (see _nearby_residents) instead
         # of an O(n) linear scan per query -- decide() calls this once per living resident every
@@ -3412,14 +3442,29 @@ class Simulation:
                 r.energy = 0
             r.energy_spent_today += _energy_before_upkeep - r.energy
 
-            # Population pressure multiplier — mild below capacity, brutal above
-            pressure_mult = max(1.0, self._pressure ** 2)
+            # Population pressure multiplier — mild below capacity, brutal above. A cold-zone
+            # resident uses their OWN regional pressure (see self._zone_pressure above) instead
+            # of the global self._pressure every other mechanic reads -- a cold-zone pioneer
+            # shouldn't take calorie-erosion/malnutrition/disease damage scaled by how crowded
+            # the temperate zone happens to be. Deliberately NOT extended to temperate/tropical:
+            # a first attempt applied this substitution to every zone and caused 2 of 10 test
+            # seeds to go extinct via a real, direct effect (not RNG-chaos noise -- both declined
+            # steadily from the very first checkpoint) -- tropical's own regional pressure runs
+            # consistently much higher than the global average (its farming/grazing_suitability
+            # are both 0, so its local carrying capacity is far worse per capita than the
+            # temperate-heavy global blend that used to dilute it), and tropical/temperate hold
+            # the vast majority of the population, so exposing them to their own true local
+            # pressure was a net-negative trade even though it fixed a real unfairness for the
+            # small cold-zone minority. Scoped down to cold only, where the problem was actually
+            # diagnosed and where the population share affected is small enough not to risk this.
+            local_pressure = self._zone_pressure['cold'] if climate_zone(r.y) == 'cold' else self._pressure
+            pressure_mult = max(1.0, local_pressure ** 2)
 
-            # Malnutrition — everyone suffers when resources are overstretched
-            if self._pressure > 1.0:
-                malnutrition = 5.0 * (self._pressure - 1.0) ** 2
+            # Malnutrition — everyone suffers when resources are overstretched (locally)
+            if local_pressure > 1.0:
+                malnutrition = 5.0 * (local_pressure - 1.0) ** 2
                 r.health -= malnutrition
-                if random.random() < (self._pressure - 1.0) * 0.1:
+                if random.random() < (local_pressure - 1.0) * 0.1:
                     r.health -= random.uniform(10, 30)  # additional mortality risk due to overcrowding
 
             # Caloric health erosion — health erodes as a direct, graduated consequence of
@@ -3527,6 +3572,8 @@ class Simulation:
             immunity_mult = max(0.2, IMMUNITY_DISEASE_MULT * (1.0 - r.traits.immunity))
             crowd = cell_pop.get((r.x, r.y), 1) - 1
             disease_p = (DISEASE_BASE_CHANCE + DISEASE_CROWD_BONUS * crowd) * pressure_mult * immunity_mult
+            if climate_zone(r.y) == 'cold':
+                disease_p *= COLD_ZONE_DISEASE_MULT
             if r.health < 40:
                 disease_p *= DISEASE_LOW_HEALTH_MULT
             if random.random() < disease_p:
