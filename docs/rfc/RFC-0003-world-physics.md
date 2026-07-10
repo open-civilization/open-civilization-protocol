@@ -405,10 +405,17 @@ distinct-archetype-count formula to three real food categories -- crop, meat, fi
 (`FOOD_CATEGORY`; salt stays entirely separate, see below) -- since a specific crop_type (wheat
 vs rice) doesn't functionally differ enough to matter, only whether the actual food GROUP
 varies: `DIET_CATEGORY_MULT` gives 0.7x for one category (including wild-only foraging), 1.2x
-for two, 1.5x for all three. Salt multiplies on top of that, separately: 1.15x if held, 0.85x
-deficit otherwise (`SALT_FOOD_BONUS_MULT`/`SALT_DEFICIT_MULT` -- a wider 1.3/0.7 spread was
-tried and reverted after it collapsed a local test population to 18 residents by tick 800; the
-two multipliers compound, so pushing both further apart at once is riskier than it looks).
+for two, 1.5x for all three. The single-category penalty was tried at a deeper 0.55 (on direct
+request to make imbalance sting harder) and reverted: a 3-seed local test showed 2 of 3 seeds
+going fully extinct and the third pinned at 79-250 population, far below the healthy 300-900
+baseline range, consistently across all seeds (not single-seed RNG noise). The single-category
+tier is most residents' baseline forage rate much of the time, not a rare edge case, so it
+compounds directly into the population's core energy budget -- any further tightening needs a
+much smaller step than a 0.15 absolute drop. Salt multiplies on top of the diet multiplier,
+separately: 1.15x if held, 0.85x deficit otherwise (`SALT_FOOD_BONUS_MULT`/`SALT_DEFICIT_MULT`
+-- a wider 1.3/0.7 spread was tried and reverted after it collapsed a local test population to
+18 residents by tick 800; the two multipliers compound, so pushing both further apart at once is
+riskier than it looks).
 Salt's own suitability is separate again: reachable at any water tile, but the island is ten
 times richer, and it's excluded entirely from the cold zone (`SALT_WATER_SUITABILITY`/
 `SALT_ISLAND_SUITABILITY`).
