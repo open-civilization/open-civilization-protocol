@@ -650,7 +650,44 @@ DIET_IMBALANCE_MAX_EXTRA_PENALTY = 0.15  # additional multiplicative penalty, fu
                                            # attempt that failed catastrophically at ALL pressure
                                            # levels (see above); gating it to only fire once
                                            # pressure is already elevated is the actual
-                                           # hypothesis under test, not a smaller number.
+                                           # hypothesis under test, not a smaller number. A
+                                           # further deepening to 0.2 was drafted but not shipped
+                                           # -- see SINGLE_CATEGORY_ENERGY_CAP below instead,
+                                           # which addresses the actual gap a multiplier alone
+                                           # can't: a multiplicative penalty only reduces
+                                           # per-forage efficiency, it doesn't stop a
+                                           # strong/lucky forager sitting on abundant biomass
+                                           # from simply out-harvesting the penalty in absolute
+                                           # terms. One isolated change at a time given how
+                                           # fragile this system has proven to diet-related
+                                           # tuning today.
+SINGLE_CATEGORY_ENERGY_CAP = 700.0        # hard per-tick kcal ceiling on gain when the recent
+                                           # diet is a single food category, regardless of how
+                                           # much biomass was actually available or how strong/
+                                           # lucky the forager was -- a multiplicative penalty
+                                           # alone (DIET_CATEGORY_MULT/DIET_IMBALANCE_*) only
+                                           # reduces per-forage efficiency, so a strong forager
+                                           # on a rich tile could still out-harvest the penalty in
+                                           # absolute kcal and effectively buy back what a
+                                           # monotonous diet costs by just gathering more of the
+                                           # same thing. This caps that: no volume of one food
+                                           # type substitutes for real variety.
+                                           #
+                                           # First tried at 400: a Monte-Carlo sample of the
+                                           # actual pre-cap gain formula (varying traits.strength,
+                                           # the harvest roll, and salt_mult) showed the ~median
+                                           # single-category gain already sits around 260-290 and
+                                           # the 90th percentile around 440 -- so 400 was clipping
+                                           # a large share of ordinary foraging, not just an
+                                           # outlier tail, and a 3-seed local test confirmed it:
+                                           # 2 of 3 seeds declined steadily toward near-extinction
+                                           # (473->38, 496->110) rather than crashing outright,
+                                           # consistent with a median-level tax rather than a rare
+                                           # clip. Recalibrated to 700, above the ~99th percentile
+                                           # of the same sample (max observed ~675), so it only
+                                           # clips genuinely exceptional strength+harvest+salt
+                                           # combinations and leaves the ordinary distribution,
+                                           # including its upper-middle tail, untouched.
 DIET_IMBALANCE_PRESSURE_RAMP = 1.0       # pressure units over which the extra penalty phases in
                                            # (linear from 0 at the threshold to full at
                                            # threshold + ramp)
@@ -2555,6 +2592,12 @@ def _do_forage(r, grid, tick, same_cell_residents=None, pressure=0.0):
 
         salt_mult = SALT_FOOD_BONUS_MULT if r.resources.get('salt', 0) > 0 else SALT_DEFICIT_MULT
         gain = harvest * conversion * sex_mult * diet_mult * salt_mult
+        # A single food category has a hard absolute ceiling (see SINGLE_CATEGORY_ENERGY_CAP) on
+        # top of its multiplicative penalty above -- a strong forager sitting on abundant biomass
+        # can't just out-harvest the penalty in absolute kcal; no amount of one food type
+        # substitutes for real dietary variety.
+        if len(distinct_categories) <= 1:
+            gain = min(gain, SINGLE_CATEGORY_ENERGY_CAP)
         pre_cap_energy = r.energy + gain - effort
         r.energy = min(MAX_ENERGY, pre_cap_energy)
         r.food_total += harvest
