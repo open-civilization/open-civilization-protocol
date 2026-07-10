@@ -306,6 +306,36 @@ genuine first data point rather than zero, confirming the diagnosis was directio
 though the effect size at this local population scale (hundreds, not the live server's
 thousands) remains small.
 
+**A precise trade-funnel trace, and a real architectural limit.** A follow-up instrumented run
+(3000 ticks, wrapping `_maybe_trade`/`_do_interact`/`decide` to count outcomes rather than
+sampling the live event feed) found the still-remaining bottleneck precisely: of 6028 `interact`
+actions, only 741 (12%) ever reached the trade check at all (the rest resolved as mate
+provisioning or food-sharing first, both higher-priority in `_do_interact`), and of those 741,
+705 (95%) had a genuinely empty `r.resources` — even though 96.5% of the population knows
+`crop_cultivation`. The actual gate is `pre_cap_energy > MAX_ENERGY`: average population energy
+runs 900-1300, so a single tick's harvest exceeding the full 3000 energy ceiling is a rare
+spike, not a routine "well-fed" state, and raising `CROP_SURPLUS_CONVERSION`'s rate (above)
+never touches how often that spike happens at all.
+
+Two independent fixes were tried on direct request. Lowering the trigger threshold
+(`CROP_SURPLUS_ENERGY_THRESHOLD_FRACTION`, requiring 65% of `MAX_ENERGY` instead of the full
+100%) verified safe across 10 seeds and shipped. Giving farming its own small unconditional
+per-tick yield (mirroring how `MINING_YIELD_PER_TICK` already works, independent of any energy
+threshold) did not ship: a 10-seed test found 3 real extinctions that didn't happen without it,
+and shrinking the per-tick amount 5x (0.15 -> 0.03) didn't fix it, isolating the cause as an
+architectural one rather than a magnitude one — `_maybe_trade`'s own gate,
+`not r.resources or random.random() >= TRADE_CHANCE`, short-circuits on emptiness, so flipping
+most of the population's `r.resources` from empty to non-empty at once silently changes how
+many `random()` calls get consumed per interaction across the entire shared global random
+stream (`Simulation.__init__` seeds Python's module-level `random`, not a per-resident
+instance), which cascades into a completely different, unrelated population trajectory for
+susceptible seeds — the same class of RNG-divergence chaos documented in RFC-0003's cold-zone
+winter-regrow investigation, but this time confirmed to have a real, elevated failure rate (3/10
+seeds) rather than being dismissible as one unlucky seed. Any future attempt at giving more
+knowledge domains their own unconditional yield needs either a per-resident/per-domain RNG
+stream (removing the shared-stream coupling entirely) or to avoid ever changing whether
+`r.resources` is empty for a large fraction of the population in a short span of ticks.
+
 **Merchant seeks chief**: even with production/retention fixed, a merchant still only ever
 encountered whoever happened to be randomly nearby -- no targeting of who's actually worth
 approaching. The safe fix reuses FOLLOW STRONGER's existing pattern exactly (ordinary residents

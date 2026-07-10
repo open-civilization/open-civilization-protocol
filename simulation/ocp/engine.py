@@ -711,6 +711,39 @@ CROP_SURPLUS_CONVERSION = 0.05    # kcal-of-excess-harvest -> tradeable crop-res
                                      # (a real, if narrow, well-fed condition), so raising the
                                      # conversion rate makes each occurrence count for more
                                      # without inventing a new, more frequent trigger.
+                                     #
+                                     # Diagnostic follow-up found this still wasn't the real
+                                     # bottleneck: a trade-funnel trace on live data showed 96.5%
+                                     # of a population knows crop_cultivation, but only 1.7%
+                                     # held any resources at all -- of 741 trade attempts sampled
+                                     # over 3000 ticks, 705 (95%) had genuinely empty
+                                     # r.resources. The gate itself (pre_cap_energy > MAX_ENERGY)
+                                     # is the problem: average population energy runs 900-1300,
+                                     # so a single tick's harvest actually exceeding the full
+                                     # 3000 energy ceiling is a rare spike, not a routine
+                                     # "well-fed" state -- raising the conversion RATE doesn't
+                                     # help a trigger that almost never fires.
+                                     #
+                                     # Two fixes were tried together on direct request: lowering
+                                     # this trigger threshold (CROP_SURPLUS_ENERGY_THRESHOLD_
+                                     # FRACTION, kept, see below), and giving farming its own
+                                     # small unconditional per-tick yield mirroring how mining
+                                     # already works (reverted -- see the threshold constant's
+                                     # comment for why: it destabilizes the shared global RNG
+                                     # stream by flipping most residents' r.resources from empty
+                                     # to non-empty, which _maybe_trade's short-circuit check
+                                     # treats as a real behavioral change regardless of amount;
+                                     # a 10-seed test found real extinctions from this that
+                                     # shrinking the per-tick amount 5x did not fix).
+CROP_SURPLUS_ENERGY_THRESHOLD_FRACTION = 0.65  # fraction of MAX_ENERGY above which excess
+                                     # harvest converts to stockpile -- lowered from requiring
+                                     # the full MAX_ENERGY (implicitly 1.0) so this can actually
+                                     # fire for a farmer having a good tick, not only an extreme
+                                     # outlier one. Verified safe alone across 10 seeds (no
+                                     # extinctions) -- unlike the unconditional-yield idea above,
+                                     # this only changes how much a farmer gets when the existing
+                                     # rare surplus event fires, never whether r.resources exists
+                                     # at all for the rest of the population.
 RESOURCE_STOCKPILE_DECAY = 0.005  # per-tick fractional decay on held resources (spoilage/
                                      # consumption by others). Halved from 0.01 so whatever a
                                      # resident does accumulate persists long enough to compound
@@ -2622,13 +2655,30 @@ def _do_forage(r, grid, tick, same_cell_residents=None, pressure=0.0):
         r.food_total += harvest
 
         # Surplus beyond what a farmer can personally consume becomes a tradeable/raidable
-        # stockpile rather than being wasted at the energy cap — only real, sustained surplus
-        # (a well-fed farmer producing more than they can eat), not routine foraging gain.
-        if farm_suit > 0 and 'crop_cultivation' in r.known_knowledge and pre_cap_energy > MAX_ENERGY:
+        # stockpile rather than being wasted at the energy cap — real surplus (a farmer doing
+        # well, not necessarily maxed out — see CROP_SURPLUS_ENERGY_THRESHOLD_FRACTION), not
+        # routine foraging gain.
+        #
+        # An unconditional small per-tick yield (mirroring MINING_YIELD_PER_TICK, independent of
+        # this threshold) was also tried and reverted -- see CROP_SURPLUS_ENERGY_THRESHOLD_
+        # FRACTION's comment for the full postmortem. It flips a farmer's r.resources from
+        # empty to non-empty almost immediately, and _maybe_trade's `not r.resources or
+        # random.random() >= TRADE_CHANCE` short-circuits on emptiness -- so this silently
+        # changes how many random() calls get consumed per interaction, across the whole shared
+        # global random stream, for a huge share of the population at once. A 10-seed test found
+        # 3 real extinctions that didn't happen without it, and shrinking the per-tick amount
+        # 5x (0.15 -> 0.03) didn't fix it -- confirming this is the emptiness *transition*
+        # itself destabilizing the shared RNG sequence, not the magnitude. The threshold change
+        # below doesn't have this failure mode (verified 10/10 seeds safe) because it only
+        # affects how much a farmer gets when the existing rare surplus event fires, not whether
+        # the resources dict exists at all for most of the population.
+        if farm_suit > 0 and 'crop_cultivation' in r.known_knowledge:
             crop_type = r.known_knowledge['crop_cultivation'].get('crop_type')
             if crop_type:
-                surplus = (pre_cap_energy - MAX_ENERGY) * CROP_SURPLUS_CONVERSION
-                _add_resource(r, crop_type, surplus)
+                surplus_threshold = MAX_ENERGY * CROP_SURPLUS_ENERGY_THRESHOLD_FRACTION
+                if pre_cap_energy > surplus_threshold:
+                    surplus = (pre_cap_energy - surplus_threshold) * CROP_SURPLUS_CONVERSION
+                    _add_resource(r, crop_type, surplus)
 
         # Leave some food behind (emergent storage)
         # Storage skill increases how much food is retained
