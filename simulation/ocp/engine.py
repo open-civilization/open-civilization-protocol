@@ -455,6 +455,24 @@ COLD_ZONE_DISEASE_MULT = 0.5    # real historical pattern: cold, dry climates su
                                   # production/upkeep at all (see the reverted winter-regrow
                                   # attempt's RNG-divergence chaos postmortem) -- this targets the
                                   # actual dominant death cause directly instead.
+# A TROPICAL_ZONE_DISEASE_MULT (the real-world counterpart to COLD_ZONE_DISEASE_MULT -- warm,
+# humid climates support pathogen survival/transmission far better than cold, dry ones) was
+# tried and reverted. First at 1.6: a 10-seed test found 1 real extinction (seed 6), confirmed
+# via same-seed A/B control as a direct causal effect (963 healthy with the multiplier off, 0
+# with it on) -- not RNG-chaos noise. Narrowed to 1.3 on the assumption a smaller number would
+# be safer, same pattern that worked for the horse-bonus interaction earlier -- it wasn't:
+# narrowing INCREASED the failure count to 2 (the same seed 6 still died, plus a new one, seed
+# 9, that had been fine at 1.6). A smaller multiplier causing MORE failures than a larger one
+# rules out a simple dose-dependent relationship -- unlike COLD_ZONE_DISEASE_MULT, which only
+# ever touched a tiny population share, tropical typically holds a large share of the whole
+# population (winter migration alone pushes a lot of people there every year), so a disease-
+# probability change there shifts the shared global RNG stream's secondary-random-call timing
+# for a much bigger, less predictable slice of the population -- chaos-divergence risk that
+# doesn't shrink monotonically with the multiplier's magnitude the way a real causal effect
+# would. Reverted entirely; giving tropical its own disease/decay identity needs either a much
+# smaller, more targeted mechanism (not a population-wide probability multiplier) or the
+# per-resident/per-domain RNG stream fix flagged elsewhere as the actual root cause of this
+# whole class of chaos-divergence issue.
 # Immunity previously had NO effect on ordinary disease risk (only the separate, rarer Epidemic
 # mechanic below used it), so high- and low-immunity residents faced identical everyday disease
 # odds -- meaning inbreeding depression's penalty on immunity (see INBREEDING_FITNESS_PENALTY)

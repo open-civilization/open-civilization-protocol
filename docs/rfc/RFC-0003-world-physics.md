@@ -645,6 +645,31 @@ population peaked at 42 and husbandry holders at 82 in the same diagnostic -- bo
 the zone-wide-only version's peaks, so narrowing the horse bonuses didn't cost the underlying
 improvement.
 
+### Tropical Zone Disease (tried, reverted)
+
+Per a broader "civilization pressure" framing (each climate zone should have both a real
+advantage and a real pressure, not just cold getting attention by default): a
+`TROPICAL_ZONE_DISEASE_MULT`, the real-world counterpart to `COLD_ZONE_DISEASE_MULT` (warm,
+humid climates support pathogen survival/transmission far better than cold, dry ones -- real
+historical tropical disease burden), was tried and reverted. First at 1.6x: a 10-seed test found
+1 real extinction (seed 6), confirmed via same-seed A/B control as a direct causal effect (963
+healthy with the multiplier off, 0 with it on) -- not RNG-chaos noise. Narrowed to 1.3x on the
+assumption a smaller number would be safer, the same pattern that worked for the horse-bonus
+interaction above -- it wasn't: narrowing *increased* the failure count to 2 (seed 6 still died,
+plus a new one, seed 9, that had been fine at 1.6x). A smaller multiplier causing *more*
+failures than a larger one rules out a simple dose-dependent relationship.
+
+The likely reason: unlike `COLD_ZONE_DISEASE_MULT`, which only ever touched a tiny population
+share, tropical typically holds a large share of the whole population (winter migration alone
+pushes a lot of people there every year), so a disease-probability change there shifts the
+shared global random module's secondary-random-call timing (see the `_maybe_trade`/crop-yield
+chaos-divergence postmortems in RFC-0007) for a much bigger, less predictable slice of the
+population -- chaos-divergence risk that doesn't shrink monotonically with the multiplier's
+magnitude the way a real causal effect would. Reverted entirely. Giving tropical its own
+disease/decay identity needs either a much smaller, more targeted mechanism than a population-
+wide probability multiplier, or the per-resident/per-domain RNG stream fix that would remove
+the shared-stream coupling behind this whole class of chaos-divergence issue in the first place.
+
 Real historical pattern that falls out of this without any new "raiding party" object: nomadic
 winter raiding (see decide()'s `NOMADIC WINTER RAID` block, RFC-0007) -- since
 `animal_husbandry` is now cold-zone-exclusive, knowing it alone proves pastoral origin, and a
