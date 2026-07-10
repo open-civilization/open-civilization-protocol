@@ -621,6 +621,30 @@ as a direct causal effect of this specific change, not RNG-chaos noise. The othe
 seeds stayed healthy. Shipped after disclosing the tradeoff -- accepted as the cost of the
 session's first real progress on this problem.
 
+**Horse-specific transportation bonuses.** Per direct request, a resident who specifically
+domesticated a horse (see `LIVESTOCK_ARCHETYPES`) gets two further benefits on top of the
+zone-wide cold forage bonus: `HORSE_FORAGE_CELL_CAP` widens the same `_best_food` terrain-scan
+radius even further (real-world logic already established for `HORSE_RAID_RANGE`, just applied
+to the food search instead of the raid-target search), and `HORSE_MOVE_COST_MULT` makes the
+direct kcal cost of a single movement step (`_do_move`) cheaper, since the horse does the
+physical work a human otherwise would.
+
+First tried at `HORSE_FORAGE_CELL_CAP=16`/`HORSE_MOVE_COST_MULT=0.4`: each constant verified
+safe in isolation via separate single-variable A/B controls on the one seed affected, but the
+COMBINATION caused a real, reproducible extinction that neither constant caused alone -- cheap
+movement plus a much wider search radius compounds into far more aggressive horse-owner
+wandering than either bonus produces by itself, a genuine interaction effect rather than
+RNG-chaos noise (both isolated variants stayed healthy at 766/596 final population on the same
+seed; only the combination went to 0). Narrowed together to `HORSE_FORAGE_CELL_CAP=12`/
+`HORSE_MOVE_COST_MULT=0.6` and reverified across the same 10 seeds: all 10 survived, including
+full recovery of the previously-extinct seed (1033) and the fragile one from the base
+forage-radius change (recovered from 22 to 959 once the horse bonuses were added -- horses
+appear to net help that seed once tuned to a safer magnitude, not just avoid harming it). Cold-
+zone metrics held up at the narrower values too: `max_cold_streak` reached 87, cold-zone
+population peaked at 42 and husbandry holders at 82 in the same diagnostic -- both higher than
+the zone-wide-only version's peaks, so narrowing the horse bonuses didn't cost the underlying
+improvement.
+
 Real historical pattern that falls out of this without any new "raiding party" object: nomadic
 winter raiding (see decide()'s `NOMADIC WINTER RAID` block, RFC-0007) -- since
 `animal_husbandry` is now cold-zone-exclusive, knowing it alone proves pastoral origin, and a

@@ -376,6 +376,23 @@ COLD_ZONE_FORAGE_CELL_CAP = 9  # wider terrain-scan radius for anyone standing i
                            # carries none of the persistent-re-targeting risk a resident-chasing
                            # mechanic would) -- not a new mechanic, not a regrow-rate change (see
                            # the reverted winter-regrow attempt's RNG-divergence postmortem).
+HORSE_FORAGE_CELL_CAP = 12  # wider still than COLD_ZONE_FORAGE_CELL_CAP, for a resident who
+                           # specifically domesticated a horse (see LIVESTOCK_ARCHETYPES) -- a
+                           # mount extends how far it's worth searching for food, same real-world
+                           # logic as HORSE_RAID_RANGE, just for the existing _best_food terrain
+                           # scan instead of the nomadic-raid target search. First tried at 16
+                           # (paired with HORSE_MOVE_COST_MULT=0.4 below): each bonus verified
+                           # safe in isolation, but the COMBINATION caused a real, reproducible
+                           # extinction in one test seed (confirmed via separate single-variable
+                           # A/B controls, not RNG-chaos noise) -- cheap movement plus a much
+                           # wider search radius compounds into far more aggressive wandering
+                           # than either alone. Both values narrowed together.
+HORSE_MOVE_COST_MULT = 0.6  # see _do_move -- a mount makes the direct kcal cost of a single
+                           # movement step cheaper, since the horse does the physical work a
+                           # human otherwise would. Direct request ("活动时能量消耗很低"). See
+                           # HORSE_FORAGE_CELL_CAP's comment -- narrowed from 0.4 alongside it
+                           # after the pair's combined effect caused a real extinction that
+                           # neither constant caused alone.
 MAX_HEALTH = 100.0
 SEASON_LENGTH = 8
 TRAIT_MUTATION = 0.15
@@ -1967,9 +1984,11 @@ def decide(r, grid, residents, tick, pressure=0.0, buckets=None, group_root=None
     # exceptional perception/intelligence -- rare enough (all four traits must simultaneously
     # exceed GIFTED_SCOUT_TRAIT_THRESHOLD) that this doesn't reintroduce the perf problem
     # PERCEPTION_CELL_CAP fixed for the general population.
+    has_horse = r.known_knowledge.get('animal_husbandry', {}).get('crop_type') == 'horse'
     scout_cap = GIFTED_SCOUT_CELL_CAP if r.is_gifted_scout() else (
         MERCHANT_CELL_CAP if r.is_merchant() else (
-            COLD_ZONE_FORAGE_CELL_CAP if climate_zone(r.y) == 'cold' else PERCEPTION_CELL_CAP))
+            HORSE_FORAGE_CELL_CAP if has_horse else (
+                COLD_ZONE_FORAGE_CELL_CAP if climate_zone(r.y) == 'cold' else PERCEPTION_CELL_CAP)))
     cell_radius = min(radius, scout_cap)
     cells = _nearby_cells(r.x, r.y, cell_radius, grid)
     near_res = _nearby_residents(r.x, r.y, radius, residents, buckets)
@@ -2444,6 +2463,12 @@ def _do_move(r, tx, ty, grid):
     if not cell.passable():
         return None
     cost = TERRAIN[cell.terrain]['move'] / r.traits.speed * 30.0  # kcal per movement action
+    # Horse ownership (see LIVESTOCK_ARCHETYPES, RFC-0003) makes travel itself dramatically
+    # cheaper -- a mount does the physical work a human otherwise would, same real-world
+    # logic behind HORSE_RAID_RANGE's extended reach, just applied to the direct cost of a
+    # single movement step rather than how far a nomad will bother traveling.
+    if r.known_knowledge.get('animal_husbandry', {}).get('crop_type') == 'horse':
+        cost *= HORSE_MOVE_COST_MULT
     if r.energy >= cost:
         r.energy -= cost
         r.x, r.y = tx, ty
