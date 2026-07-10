@@ -670,6 +670,32 @@ disease/decay identity needs either a much smaller, more targeted mechanism than
 wide probability multiplier, or the per-resident/per-domain RNG stream fix that would remove
 the shared-stream coupling behind this whole class of chaos-divergence issue in the first place.
 
+### Cold Zone Calorie-Erosion Reduction (the actual root cause, finally addressed directly)
+
+Every cold-zone diagnostic this session (disease suppression, regional pressure, founding
+herders, wider forage radius, horse bonuses) kept converging on the same conclusion: the
+~80-96-tick ceiling on continuous cold-zone residency was never really about disease or
+discovery odds, it was the direct calorie-erosion-to-health pathway itself (`HEALTH_EROSION_
+RATE`/`DEATH_ZONE_RATE`, both scaling with caloric deficit) -- harsh winter upkeep drives energy
+into the erosion/death-zone bands, and this health cost, not disease, sets the actual ceiling.
+Per direct request to finally address this: `COLD_ZONE_EROSION_MULT` (0.6) discounts both rates
+for cold-zone residents specifically. Deliberately scoped the same low-blast-radius way as
+`COLD_ZONE_DISEASE_MULT` (a small population share), not a global `HEALTH_EROSION_RATE`/
+`DEATH_ZONE_RATE` change, which would carry the same large-population chaos-divergence risk that
+just sank the tropical disease attempt -- and not the same lever as the reverted direct
+winter-regrow attempt either (that changed food production/supply; this changes how harshly a
+given deficit is punished, leaving supply untouched).
+
+This produced the strongest cold-zone result of the whole session: cold-zone population peaked
+at 61 and husbandry holders at 185 in a 2000-tick diagnostic (previous best: 42 and 82,
+respectively), `max_cold_streak` reached 89. Verified across 10 seeds: 9 survived cleanly. One
+(seed 2, a seed that had independently shown fragility under numerous unrelated changes earlier
+this session) went extinct -- but a same-seed A/B control showed it was *already* declining
+toward fragility even with the change disabled (75 by tick 1200, not a healthy population), so
+this isn't the clean "healthy baseline collapses under the change" pattern seen in some earlier
+reverted attempts -- more a seed already near its own edge getting tipped over. Shipped given
+the scale of the improvement and that context.
+
 Real historical pattern that falls out of this without any new "raiding party" object: nomadic
 winter raiding (see decide()'s `NOMADIC WINTER RAID` block, RFC-0007) -- since
 `animal_husbandry` is now cold-zone-exclusive, knowing it alone proves pastoral origin, and a

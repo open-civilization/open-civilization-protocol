@@ -961,6 +961,24 @@ CALORIE_EROSION_THRESHOLD = 2000.0  # below this, health begins to erode (gradua
 CALORIE_DEATH_ZONE = 1500.0         # below this, erosion becomes severe -- baseline for age 40+
 HEALTH_EROSION_RATE = 1.5           # health/tick at full deficit within the erosion band (2000->0)
 DEATH_ZONE_RATE = 8.0               # additional health/tick at full deficit within the death band (1500->0)
+COLD_ZONE_EROSION_MULT = 0.6        # cold-zone-only reduction on both rates above -- this is the
+                                      # actual root-cause pathway identified by the original
+                                      # cold-zone survival diagnostic: harsh winter upkeep drives
+                                      # energy into the erosion/death-zone bands, and THIS direct
+                                      # health cost (not disease, which COLD_ZONE_DISEASE_MULT
+                                      # already targets) sets the ~80-96-tick ceiling no cold-zone
+                                      # resident has ever exceeded regardless of every other fix
+                                      # tried (disease suppression, regional pressure, founding
+                                      # herders, wider forage radius, horse bonuses). Deliberately
+                                      # scoped to cold-zone residents only, same low-blast-radius
+                                      # pattern as COLD_ZONE_DISEASE_MULT (a small population
+                                      # share) rather than a global HEALTH_EROSION_RATE/
+                                      # DEATH_ZONE_RATE change (which would carry the same
+                                      # large-population chaos-divergence risk the reverted
+                                      # TROPICAL_ZONE_DISEASE_MULT attempt just demonstrated) --
+                                      # NOT the same lever as the reverted direct winter-regrow
+                                      # attempt either (that changed food production/supply, this
+                                      # changes how harshly a given deficit is punished).
 # Age/sex-dependent caloric tolerance (see _calorie_thresholds) -- young adults (10-40) run
 # leaner metabolically and tolerate a lower reserve before real erosion sets in; young females
 # tolerate even less (consistent with FEMALE_UPKEEP_MULT/FEMALE_NUTRITION_THRESHOLD_MULT); past
@@ -3555,12 +3573,13 @@ class Simulation:
             erosion_threshold, death_zone = _calorie_thresholds(r)
             in_crisis = r.energy < death_zone
             recovering = r.energy > erosion_threshold
+            erosion_mult = COLD_ZONE_EROSION_MULT if climate_zone(r.y) == 'cold' else 1.0
             if r.energy < erosion_threshold:
                 deficit = (erosion_threshold - r.energy) / erosion_threshold
-                r.health -= HEALTH_EROSION_RATE * deficit * pressure_mult
+                r.health -= HEALTH_EROSION_RATE * deficit * pressure_mult * erosion_mult
             if in_crisis:
                 severe_deficit = (death_zone - r.energy) / death_zone
-                r.health -= DEATH_ZONE_RATE * severe_deficit * pressure_mult
+                r.health -= DEATH_ZONE_RATE * severe_deficit * pressure_mult * erosion_mult
 
             # Winter: caloric crisis drives knowledge discovery and reinforcement — the
             # same physical state (severe caloric deficit) that food storage, shelter,
