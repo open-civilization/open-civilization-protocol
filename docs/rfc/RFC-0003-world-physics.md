@@ -333,8 +333,17 @@ Energy density per unit of cultivated land is not a single fixed multiplier — 
 
 | Livestock archetype | Energy density | Favored zone | Real-world analogy |
 |---|---|---|---|
-| Grazer | 1.1× | Cold | Cattle/sheep-type herding on open range |
-| Browser | 0.95× | Tropical | Goat-type mixed browsing |
+| Sheep | 0.9× | Cold | Hardiest and earliest-domesticated, thrives on marginal grazing land |
+| Cattle | 1.3× | Cold | Needs richer pasture but yields the most meat per animal |
+| Horse | 0.85× | Cold | A later, rarer, more prized domesticate — steppe pastoralism |
+
+Replaced the earlier generic `grazer`/`browser` abstraction with three named cold-zone species
+on direct request, same reasoning as the crop table above: which specific animal a herder ends
+up with is a weighted-random outcome of local suitability (`_pick_archetype`), not an authored
+choice. All three are cold-zone-exclusive under the existing zone exclusivity (only `cold` has
+`grazing_suitability > 0`); a temperate/tropical livestock archetype is a separate, not-yet-
+implemented ask that needs its own zone-exclusivity change first (raising tropical's
+`grazing_suitability` above 0, currently 0 like temperate's), not just another table entry.
 
 **Mineral resources** are a separate, non-food resource class — physical goods to trade or have
 raided rather than an energy source. Cold-zone-dominant real geology (coal seams, iron-bearing

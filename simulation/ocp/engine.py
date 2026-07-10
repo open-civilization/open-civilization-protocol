@@ -585,9 +585,23 @@ CROP_ARCHETYPES = {
     'sweet_potato': {'energy_density_mult': 0.55, 'zone_weights': {'cold': 1.0, 'temperate': 0.0, 'tropical': 0.0}},
     'corn':         {'energy_density_mult': 0.6,  'zone_weights': {'cold': 1.0, 'temperate': 0.0, 'tropical': 0.0}},
 }
+# Named cold-zone livestock (replacing the generic 'grazer'/'browser' abstraction), same pattern
+# as CROP_ARCHETYPES above -- which specific animal a herder ends up with is a weighted-random
+# outcome of local suitability, not an authored choice (see _pick_archetype). Real historical
+# domestication-order weighting: sheep were domesticated earliest and most widely (hardiest on
+# marginal grazing land), cattle need richer pasture but yield the most meat per animal, horses
+# were a later, rarer, more prized domesticate. All three are cold-zone-exclusive under the
+# current zone exclusivity (CLIMATE_ZONES: only 'cold' has grazing_suitability > 0), so
+# temperate/tropical weights are left at the _pick_archetype default (0.1) rather than
+# hand-tuned -- they're currently unreachable regardless, same as the 'grazer'/'browser' table
+# this replaces already was for temperate/tropical (dead weight since the zone-exclusivity
+# change). Tropical livestock (a separate ask, not yet implemented) would need tropical's own
+# grazing_suitability raised above 0 first -- a real, currently-open zone-exclusivity change,
+# not just another archetype table entry.
 LIVESTOCK_ARCHETYPES = {
-    'grazer': {'energy_density_mult': 1.1, 'zone_weights': {'cold': 3.0, 'temperate': 1.0, 'tropical': 0.3}},
-    'browser': {'energy_density_mult': 0.95, 'zone_weights': {'tropical': 2.0, 'temperate': 1.0, 'cold': 0.2}},
+    'sheep':  {'energy_density_mult': 0.9, 'zone_weights': {'cold': 3.0}},
+    'cattle': {'energy_density_mult': 1.3, 'zone_weights': {'cold': 2.5}},
+    'horse':  {'energy_density_mult': 0.85, 'zone_weights': {'cold': 1.5}},
 }
 
 # Dietary diversity (see recent_food_types on Resident and _do_forage) -- real nutrition: a
@@ -604,14 +618,14 @@ DIET_DIVERSITY_WINDOW = 30          # ticks -- a food type eaten this recently s
 # Three real food categories -- crop, meat, fish (salt is tracked and multiplied entirely
 # separately, see SALT_FOOD_BONUS_MULT/SALT_DEFICIT_MULT, since it isn't a calorie source of
 # its own) -- rather than a generic "how many distinct archetypes" count. A specific crop_type
-# (wheat vs rice) or livestock_type (grazer vs browser) doesn't functionally differ enough to
-# matter here; what matters is whether the actual food GROUP varies. Foraging wild biomass
-# (no cultivation/husbandry/fishing knowledge) counts as its own single category, same tier as
-# any one staple -- it's still just one food source, not zero.
+# (wheat vs rice) or livestock_type (sheep vs cattle vs horse) doesn't functionally differ
+# enough to matter here; what matters is whether the actual food GROUP varies. Foraging wild
+# biomass (no cultivation/husbandry/fishing knowledge) counts as its own single category, same
+# tier as any one staple -- it's still just one food source, not zero.
 FOOD_CATEGORY = {
     'wheat': 'crop', 'rice': 'crop', 'soybean': 'crop', 'sweet_potato': 'crop',
     'corn': 'crop', 'fruit': 'crop',
-    'grazer': 'meat', 'browser': 'meat',
+    'sheep': 'meat', 'cattle': 'meat', 'horse': 'meat',
     'fish': 'fish',
 }
 DIET_CATEGORY_MULT = {1: 0.7, 2: 1.2, 3: 1.5}  # keyed by count of distinct categories eaten
