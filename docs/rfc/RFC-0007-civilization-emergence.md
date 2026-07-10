@@ -268,6 +268,26 @@ successful-enough merchant accumulates real `chief_standing` themselves — an e
 merchant-to-chief pathway that falls out of reusing the existing standing metric, not a second
 authored ladder.
 
+**Closing the trade-diet loop**: the pressure-gated dietary imbalance penalty (RFC-0003) already
+gave a low-diversity resident a behavioral reason to risk approaching a stranger (the SOCIAL
+block's `low_diversity` condition), but two gaps meant that contact didn't actually fix
+anything. First, the reciprocal barter leg in `_maybe_trade` was merchant-exclusive
+(`r.is_merchant()`), so an ordinary resident who initiated contact out of dietary need could
+only ever give their own surplus away, never receive the category they were missing — unless a
+merchant happened to separately initiate contact with them later. Second, even a resource
+received via trade (`r.resources`, a passive stockpile) was never connected to
+`recent_food_types` (the diet-diversity tracker, updated only by `_do_forage`'s act of directly
+producing food), so holding a traded good couldn't relieve the penalty even when received.
+Both gaps are closed: the reciprocal leg now also fires for any resident whose own recent diet
+is monotonous (same `low_diversity` test as the SOCIAL trigger), not just merchants — they get
+the real exchange but not the merchant's profit skim, since their motive is nutritional need,
+not brokerage; and any food-category good (`FOOD_CATEGORY`) received through either leg of a
+trade is recorded into `recent_food_types` at the tick received, same as if it had been
+foraged directly. This makes "a resident short on variety trades with someone who has it" an
+actual, functioning loop rather than a one-way gift that never reaches the person who needed
+it — merchants remain the ones who profit from matching gluts to shortages, but they're no
+longer the only ones who can complete a real exchange.
+
 ### Hierarchies
 
 - some residents consistently influencing others' behavior

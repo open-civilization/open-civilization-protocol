@@ -2636,12 +2636,19 @@ def _maybe_trade(r, target, tick, residents_by_id=None):
     happen to meet — not a scripted trade route (RFC-0007 explicitly forbids that), just
     individual reciprocity extended to named goods the same way food-sharing already works for
     calories. A resident with real surplus of something the other visibly lacks may give some
-    away; for ordinary residents this is a one-off gift-style exchange, not a negotiated barter.
+    away; for a resident with no real need of their own this is a one-off gift, not a
+    negotiated barter.
 
-    Merchants (is_merchant, RFC-0004) go further: they complete the reciprocal leg too (the
-    target's own surplus-vs-r's-deficit good comes back), turning the gift into a real barter,
-    and earn a profit margin on it (see MERCHANT_TRADE_PROFIT_KCAL) that gets redistributed
-    rather than kept — see the constant's comment for why."""
+    Two groups complete the reciprocal leg too (the target's own surplus-vs-r's-deficit good
+    comes back, turning the gift into a real barter): merchants (is_merchant, RFC-0004), who
+    additionally earn a profit margin on it (see MERCHANT_TRADE_PROFIT_KCAL) that gets
+    redistributed rather than kept; and any resident whose own recent diet is monotonous
+    (low_diversity, same test as the SOCIAL block that risked this contact in the first place)
+    — they're the ones with an actual nutritional reason to seek the return good, not a
+    speculative one, so they get the real exchange without the merchant's profit skim. Either
+    way, a food-category good received (`FOOD_CATEGORY`) counts as consumed for diet-diversity
+    purposes (`recent_food_types`) — otherwise trading for what you're missing would have no
+    actual effect on the imbalance penalty that motivated the trade."""
     if not r.resources or random.random() >= TRADE_CHANCE:
         return None
     candidates = [
@@ -2654,10 +2661,15 @@ def _maybe_trade(r, target, tick, residents_by_id=None):
     gift = r.resources[good] * TRADE_GIFT_FRACTION
     accepted = _add_resource(target, good, gift)
     r.resources[good] -= accepted
+    if accepted > 0 and good in FOOD_CATEGORY:
+        target.recent_food_types[good] = tick
     r.bonds[target.id].quality = min(1.0, r.bonds[target.id].quality + 0.15)
     target.bonds[r.id].quality = min(1.0, target.bonds[r.id].quality + 0.15)
 
-    if r.is_merchant() and residents_by_id is not None:
+    r_low_diversity = len({FOOD_CATEGORY.get(t, 'wild') for t, last in r.recent_food_types.items()
+                            if tick - last <= DIET_DIVERSITY_WINDOW}) <= 1
+    merchant_mode = r.is_merchant()
+    if (merchant_mode or r_low_diversity) and residents_by_id is not None:
         back_candidates = [
             name for name, qty in target.resources.items()
             if name != good and qty > TRADE_SURPLUS_FLOOR and r.resources.get(name, 0.0) < qty * 0.3
@@ -2668,33 +2680,36 @@ def _maybe_trade(r, target, tick, residents_by_id=None):
             back_accepted = _add_resource(r, back_good, back_gift)
             target.resources[back_good] -= back_accepted
             if back_accepted > 0:
-                chief_ally = None
-                for bid, bond in r.bonds.items():
-                    if bond.quality > 0:
-                        candidate = residents_by_id.get(bid)
-                        if candidate is not None and candidate.alive and candidate.has_chief_standing():
-                            chief_ally = candidate
-                            break
-                bonded_children = [
-                    residents_by_id[bid] for bid, bond in r.bonds.items()
-                    if bond.quality > 0 and bid in residents_by_id and residents_by_id[bid].alive
-                    and residents_by_id[bid].id != target.id
-                    and r.id in (residents_by_id[bid].mother_id, residents_by_id[bid].father_id)
-                ]
-                chief_cut = MERCHANT_TRADE_PROFIT_KCAL * MERCHANT_PROFIT_CHIEF_SHARE
-                child_pool = MERCHANT_TRADE_PROFIT_KCAL - chief_cut
-                if chief_ally is not None:
-                    chief_ally.energy = min(MAX_ENERGY, chief_ally.energy + chief_cut)
-                    r.energy_given_away += chief_cut
-                else:
-                    r.energy = min(MAX_ENERGY, r.energy + chief_cut)
-                if bonded_children:
-                    share = child_pool / len(bonded_children)
-                    for child in bonded_children:
-                        child.energy = min(MAX_ENERGY, child.energy + share)
-                    r.energy_given_away += child_pool
-                else:
-                    r.energy = min(MAX_ENERGY, r.energy + child_pool)
+                if back_good in FOOD_CATEGORY:
+                    r.recent_food_types[back_good] = tick
+                if merchant_mode:
+                    chief_ally = None
+                    for bid, bond in r.bonds.items():
+                        if bond.quality > 0:
+                            candidate = residents_by_id.get(bid)
+                            if candidate is not None and candidate.alive and candidate.has_chief_standing():
+                                chief_ally = candidate
+                                break
+                    bonded_children = [
+                        residents_by_id[bid] for bid, bond in r.bonds.items()
+                        if bond.quality > 0 and bid in residents_by_id and residents_by_id[bid].alive
+                        and residents_by_id[bid].id != target.id
+                        and r.id in (residents_by_id[bid].mother_id, residents_by_id[bid].father_id)
+                    ]
+                    chief_cut = MERCHANT_TRADE_PROFIT_KCAL * MERCHANT_PROFIT_CHIEF_SHARE
+                    child_pool = MERCHANT_TRADE_PROFIT_KCAL - chief_cut
+                    if chief_ally is not None:
+                        chief_ally.energy = min(MAX_ENERGY, chief_ally.energy + chief_cut)
+                        r.energy_given_away += chief_cut
+                    else:
+                        r.energy = min(MAX_ENERGY, r.energy + chief_cut)
+                    if bonded_children:
+                        share = child_pool / len(bonded_children)
+                        for child in bonded_children:
+                            child.energy = min(MAX_ENERGY, child.energy + share)
+                        r.energy_given_away += child_pool
+                    else:
+                        r.energy = min(MAX_ENERGY, r.energy + child_pool)
     return f'{r.name} traded {good} with {target.name}'
 
 
