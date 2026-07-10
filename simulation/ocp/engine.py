@@ -2252,6 +2252,28 @@ def decide(r, grid, residents, tick, pressure=0.0, buckets=None, group_root=None
             if abs(leader.x - r.x) + abs(leader.y - r.y) > 1:
                 return _step_toward(r.x, r.y, leader.x, leader.y, grid)
 
+    # MERCHANT SEEK CHIEF (see is_merchant, RFC-0004): a merchant bonded to a chief-standing
+    # ally travels toward them specifically rather than wandering for a random stranger. Real
+    # settlements' economic activity concentrates where the local leader already is -- their
+    # followers already gravitate there via FOLLOW STRONGER above, so a chief is a natural,
+    # already-known hub of exactly the surplus/scarcity pattern a merchant needs, echoing the
+    # Sahlins Big Man redistribution role chief_standing is already modeled on. Deliberately
+    # reuses FOLLOW STRONGER's exact safety property: the target is an EXISTING bond, not a
+    # freshly-detected stranger, so this never hits the persistent-re-targeting failure mode
+    # that collapsed the territorial-retreat/exogamy attempts (see Hierarchies, RFC-0007) --
+    # the same chief tends to get picked tick after tick because the bond itself is stable, not
+    # because of any stored/committed target field. Once adjacent, interacts with the chief
+    # directly (not left to the generic SOCIAL block's random pick) so the trip actually
+    # resolves into the encounter it was for.
+    if r.is_merchant() and r.energy > 1200 and near_res:
+        known_chiefs = [(res, d) for res, d in near_res
+                         if res.id in r.bonds and res.has_chief_standing()]
+        if known_chiefs:
+            chief = min(known_chiefs, key=lambda x: x[1])[0]
+            if abs(chief.x - r.x) + abs(chief.y - r.y) <= 1:
+                return ('interact', None, None, chief.id)
+            return _step_toward(r.x, r.y, chief.x, chief.y, grid)
+
     # SOCIAL — prefer approaching someone already familiar (bonded or kin) over a genuine
     # stranger, mirroring real intergroup wariness: repeated trust builds within an existing
     # circle, contact with true outsiders stays comparatively rare (see RAID/_maybe_trade for

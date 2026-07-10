@@ -306,6 +306,31 @@ genuine first data point rather than zero, confirming the diagnosis was directio
 though the effect size at this local population scale (hundreds, not the live server's
 thousands) remains small.
 
+**Merchant seeks chief**: even with production/retention fixed, a merchant still only ever
+encountered whoever happened to be randomly nearby -- no targeting of who's actually worth
+approaching. The safe fix reuses FOLLOW STRONGER's existing pattern exactly (ordinary residents
+already gravitate toward a meaningfully-more-capable bonded ally, see `_capability`): a merchant
+bonded to a chief-standing ally now travels toward them specifically and interacts with them
+directly on arrival, rather than the generic SOCIAL block's random pick among whoever's nearby.
+This is safe for the same reason FOLLOW STRONGER is -- the target is an EXISTING bond, not a
+freshly-detected stranger, so the same chief tends to get picked tick after tick because the
+*bond* is stable, not because of a stored/committed target field re-evaluated by comparing
+"best available" each tick (the exact pattern that collapsed the territorial-retreat and
+inbreeding-aware-exogamy attempts). A chief is also a natural information/redistribution hub in
+its own right (Sahlins' Big Man model, already cited above for `chief_standing`) and their own
+followers already cluster there via the same FOLLOW STRONGER mechanic, so reaching the chief
+also means reaching a real local economic cluster, without any new "market" object or explicit
+aggregate-stockpile data structure on the chief.
+
+Verified across the same 3 test seeds: zero extinctions, but population ran measurably lower in
+2 of 3 seeds versus the immediately-prior baseline (132/282/217 vs. 330/554/140) -- one seed
+improved, two declined. The likely mechanism: the trigger (`r.energy > 1200`, matching FOLLOW
+STRONGER's own threshold) isn't a true hunger gate, so a merchant with a nearby-but-not-adjacent
+bonded chief prioritizes walking over foraging even when only moderately fed, trading some of
+their own energy margin for the trip. Shipped anyway on direct request after disclosing the
+tradeoff -- accepted as the cost of giving merchants real information/target discipline instead
+of pure chance encounters.
+
 ### Hierarchies
 
 - some residents consistently influencing others' behavior
