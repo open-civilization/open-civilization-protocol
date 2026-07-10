@@ -895,6 +895,22 @@ COLD_ZONE_GRAZING_BONUS = 1.5  # nomadic pastoralism: the cold zone is meant to 
                                  # husbandry-specific ADD-ON term in the conversion formula, not
                                  # the whole forage gain multiplicatively, so it doesn't carry
                                  # the same compounding risk the salt-deficit widening did.
+COLD_ZONE_WINTER_HUNT_BONUS = 10.0  # direct request: "哪怕冬季，都可以觅食动物来补充能量" --
+                                 # wild game is genuinely still present in the cold zone during
+                                 # winter (just sparser than other seasons, see the CLIMATE_ZONES
+                                 # winter regrow multiplier, which this does NOT touch), so
+                                 # opportunistic winter hunting adds a real conversion bonus for
+                                 # anyone foraging in the cold zone in winter -- independent of
+                                 # animal_husbandry knowledge (unlike COLD_ZONE_GRAZING_BONUS,
+                                 # this is available to a resident who hasn't domesticated
+                                 # anything yet, precisely the bootstrapping-phase pioneers this
+                                 # is meant to help). Smaller than ANIMAL_HUSBANDRY_BASE_BONUS
+                                 # (20.0) -- opportunistic hunting is real but secondary to actual
+                                 # domesticated herding, not a replacement for it. Same
+                                 # conversion-formula-additive pattern as every other bonus here
+                                 # (not a regrow-rate change, not a global change) -- deliberately
+                                 # avoids the RNG-divergence chaos class that sank the direct
+                                 # winter-regrow attempt earlier this session.
 FISHING_BASE_BONUS = 25.0            # between farming's and husbandry's -- a real, secondary
                                        # economy specific to water tiles, richest near the island
 FISHING_SKILL_BONUS = 60.0
@@ -2696,6 +2712,8 @@ def _do_forage(r, grid, tick, same_cell_residents=None, pressure=0.0):
                             # under it), so this is a small, deliberate nudge rather than another
                             # large jump, to avoid repeating the earlier explosive-growth/
                             # performance-crisis cycle
+        if cell.climate == 'cold' and SEASONS[(tick // SEASON_LENGTH) % 4] == 'winter':
+            conversion += COLD_ZONE_WINTER_HUNT_BONUS
         if farm_suit > 0 and 'crop_cultivation' in r.known_knowledge:
             # Real agricultural revolution: farming yields substantially more usable energy per
             # unit of harvested biomass than raw foraging technique, even before mastery -- a

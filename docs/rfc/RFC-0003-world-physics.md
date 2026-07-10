@@ -724,6 +724,28 @@ parameter at all, but something more structural about how a sparse, spread-out p
 finds mates/reproduces at low density, or requires a fundamentally different diagnostic pass
 before the next attempt.
 
+### Cold Zone Winter Hunting Bonus
+
+Direct request: "哪怕冬季，都可以觅食动物来补充能量" (even in winter, wild animals should be
+forageable for energy) -- real wild game is genuinely still present in the cold zone during
+winter, just sparser than other seasons (the `CLIMATE_ZONES` winter regrow multiplier, which
+this deliberately does NOT touch, given the reverted direct winter-regrow attempt's RNG-
+divergence chaos postmortem earlier this session). `COLD_ZONE_WINTER_HUNT_BONUS` (10.0) adds a
+conversion-formula bonus (same additive pattern as `ANIMAL_HUSBANDRY_BASE_BONUS`/`FISHING_BASE_
+BONUS`) for anyone foraging in the cold zone during winter -- independent of `animal_husbandry`
+knowledge, unlike `COLD_ZONE_GRAZING_BONUS`, so it's available to a resident who hasn't
+domesticated anything yet, precisely the bootstrapping-phase pioneers this is meant to help.
+Smaller than full husbandry mastery's bonus (20.0 base) -- opportunistic hunting is real but
+secondary to actual herding, not a replacement for it.
+
+Verified across 10 seeds: 9 survived cleanly, one (seed 1) dropped to a fragile-but-not-extinct
+9, confirmed via same-seed A/B control as a real causal effect on a seed that was otherwise
+healthy (497 with the bonus off) -- not an already-fragile seed getting tipped over, the more
+concerning pattern. Cold-zone diagnostic showed a new population peak (73, up from the previous
+best of 61) and husbandry peak of 142. Shipped given the seventh consecutive net-positive
+zone-scoped fix and the continuing trend of real peak improvement, though (per the fertility
+section above) the underlying "spikes then crashes" pattern has still not been fully resolved.
+
 Real historical pattern that falls out of this without any new "raiding party" object: nomadic
 winter raiding (see decide()'s `NOMADIC WINTER RAID` block, RFC-0007) -- since
 `animal_husbandry` is now cold-zone-exclusive, knowing it alone proves pastoral origin, and a
