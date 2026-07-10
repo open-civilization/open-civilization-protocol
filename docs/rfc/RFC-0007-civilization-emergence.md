@@ -288,6 +288,24 @@ actual, functioning loop rather than a one-way gift that never reaches the perso
 it — merchants remain the ones who profit from matching gluts to shortages, but they're no
 longer the only ones who can complete a real exchange.
 
+**Trade's actual supply-side bottleneck**: even with demand-side motivation working (pressure-
+gated penalty, `low_diversity`-driven contact, the closed loop above), live data showed only
+45 of 232 merchants held any resources at all, and most of those holdings (0.1-1.4 units) sat
+below the trade-candidacy threshold. Lowering that threshold (`TRADE_SURPLUS_FLOOR`, 2.0 -> 0.5)
+alone didn't move local trade frequency at all — `resource_holders` stayed in the single digits
+across a 1500-tick, 3-seed test regardless, meaning most residents were never accumulating
+resources in the first place, not just falling short of an arbitrary floor. The real bottleneck
+is production and retention: crop surplus only converts to a tradeable stockpile in the narrow
+window where a farmer's energy already exceeds `MAX_ENERGY` (`CROP_SURPLUS_CONVERSION`), and
+`RESOURCE_STOCKPILE_DECAY` erodes whatever does accumulate at 1%/tick between those rare events.
+`MINING_YIELD_PER_TICK` (0.8 -> 1.5), `CROP_SURPLUS_CONVERSION` (0.02 -> 0.05), and
+`RESOURCE_STOCKPILE_DECAY` (0.01 -> 0.005, halved) were all raised together on direct request.
+Verified safe across the same 3 test seeds (no extinctions, one seed measurably healthier) and
+produced the first real trade event observed in any local test this session — still rare, but a
+genuine first data point rather than zero, confirming the diagnosis was directionally right even
+though the effect size at this local population scale (hundreds, not the live server's
+thousands) remains small.
+
 ### Hierarchies
 
 - some residents consistently influencing others' behavior

@@ -674,14 +674,40 @@ MINERAL_ARCHETYPES = {
 SALT_WATER_SUITABILITY = 0.08
 SALT_ISLAND_SUITABILITY = 0.8
 MINING_DISCOVERY_CHANCE = 0.0025  # per qualifying forage tick, same order as DOMESTICATION_DISCOVERY_CHANCE
-MINING_YIELD_PER_TICK = 0.8       # base quantity added to a miner's stockpile per working tick
-CROP_SURPLUS_CONVERSION = 0.02    # kcal-of-excess-harvest -> tradeable crop-resource units
-RESOURCE_STOCKPILE_DECAY = 0.01   # per-tick fractional decay on held resources (spoilage/consumption by others)
+MINING_YIELD_PER_TICK = 1.5       # base quantity added to a miner's stockpile per working tick.
+                                     # Raised from 0.8 on direct request: live data showed only
+                                     # 45/232 merchants held any resources at all and most
+                                     # holdings were tiny (0.1-1.4) -- lowering TRADE_SURPLUS_
+                                     # FLOOR alone didn't fix trade frequency in local testing
+                                     # because residents rarely accumulate enough stock in the
+                                     # first place, so the actual bottleneck is production/
+                                     # retention, not the trade-candidate threshold.
+CROP_SURPLUS_CONVERSION = 0.05    # kcal-of-excess-harvest -> tradeable crop-resource units.
+                                     # Raised from 0.02, same reasoning as above -- this only
+                                     # fires once a farmer's energy already exceeds MAX_ENERGY
+                                     # (a real, if narrow, well-fed condition), so raising the
+                                     # conversion rate makes each occurrence count for more
+                                     # without inventing a new, more frequent trigger.
+RESOURCE_STOCKPILE_DECAY = 0.005  # per-tick fractional decay on held resources (spoilage/
+                                     # consumption by others). Halved from 0.01 so whatever a
+                                     # resident does accumulate persists long enough to compound
+                                     # toward TRADE_SURPLUS_FLOOR instead of eroding away between
+                                     # the rare production events above.
 
 # Trade — see _maybe_trade. Opportunistic, individual, probabilistic exchange during an
 # ordinary interaction; not a scripted allocation or trade-route algorithm (RFC-0007 Non-Goals).
 TRADE_CHANCE = 0.2               # per qualifying interaction
-TRADE_SURPLUS_FLOOR = 2.0        # must hold at least this much of a good before considering a gift
+TRADE_SURPLUS_FLOOR = 0.5        # must hold at least this much of a good before considering a gift.
+                                    # Lowered from 2.0 on direct request after live data showed
+                                    # the real bottleneck on merchant activity: only 45/232 live
+                                    # merchants held ANY resources at all, and most of those
+                                    # holdings (0.1-1.4) sat below the old 2.0 floor -- crop
+                                    # surplus only converts to storable resources in the narrow
+                                    # window where a farmer's energy exceeds MAX_ENERGY, and
+                                    # RESOURCE_STOCKPILE_DECAY erodes it 1%/tick after that, so
+                                    # most residents never accumulated enough to even become a
+                                    # trade candidate. This only changes what counts as "worth
+                                    # offering" -- doesn't touch any population energy formula.
 TRADE_GIFT_FRACTION = 0.25       # fraction of the surplus given away per successful trade
 
 # Merchant profit redistribution (see is_merchant, RFC-0004) — a merchant who completes a real
