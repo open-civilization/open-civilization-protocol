@@ -854,6 +854,79 @@ cost and 5x carrying capacity appear to strengthen exactly the trade/provisionin
 herder-migration-reluctance fix (see above) depends on, rather than destabilizing it. Shipped at
 the full requested magnitude; no narrowing was needed.
 
+### Horse's Own Energy Pool (grazing constraint on the power-up above)
+
+Direct follow-up: the horse itself needs its own upkeep, not just the rider's — a real grazing
+constraint on how far the power-up above can be exploited away from the horse's native cold-zone
+range. New `Resident.horse_energy` field (default `-1.0` sentinel = "not yet initialized",
+lazily set to `HORSE_ENERGY_MAX` the first tick `_has_horse(r)` is true — covers both fresh
+invention and hereditary/taught acquisition without touching every acquisition call site).
+
+Per-tick update (`Simulation._tick`, right after the ordinary upkeep block, before `decide()`
+runs for that tick):
+
+```python
+if _has_horse(r):
+    if r.horse_energy < 0:
+        r.horse_energy = HORSE_ENERGY_MAX
+    replenish = (HORSE_ENERGY_REPLENISH_COLD if climate_zone(r.y) == 'cold'
+                 else HORSE_ENERGY_REPLENISH_OTHER)
+    r.horse_energy = max(0.0, min(HORSE_ENERGY_MAX,
+                                   r.horse_energy + replenish - HORSE_ENERGY_CONSUMPTION))
+```
+
+Constants map directly to the request's own numbers: `HORSE_ENERGY_MAX = 3000.0` (mirrors
+`MAX_ENERGY`'s "full caloric reserve" scale), `HORSE_ENERGY_REPLENISH_COLD = 500.0`,
+`HORSE_ENERGY_REPLENISH_OTHER = 450.0` ("进入温带,每个tick补充的卡路里只有450" — tropical is
+treated the same as temperate since the request only named temperate explicitly and horses have
+no natural range in either warm zone), `HORSE_ENERGY_CONSUMPTION = 500.0` (constant regardless of
+zone, per "消耗也是500卡路里"). Net change per tick is therefore exactly 0 in the cold zone
+(steady-state maintenance — staying below `HORSE_ENERGY_MAX` in cold does **not** recover lost
+energy, since replenish only matches, never exceeds, consumption there — a literal reading of the
+request's own 500=500 framing) and a steady -50/tick everywhere else, so a horse runs down over
+roughly 60 ticks of continuous non-cold operation and only *stops* draining (not un-drains) by
+returning to cold.
+
+Degradation is a smooth, deterministic taper — no `random()` call anywhere in this mechanic, so
+unlike most of this session's probability-threshold changes it carries none of the
+RNG-divergence-chaos risk:
+
+```python
+def _horse_bonus_scale(r):
+    if r.horse_energy < 0:
+        return 1.0
+    return max(0.0, min(1.0, r.horse_energy / HORSE_ENERGY_DEGRADE_THRESHOLD))
+
+def _horse_mult(r, base_mult):
+    if not _has_horse(r):
+        return 1.0
+    return 1.0 + (base_mult - 1.0) * _horse_bonus_scale(r)
+```
+
+`HORSE_ENERGY_DEGRADE_THRESHOLD = 1500.0` (half of `HORSE_ENERGY_MAX`) — bonuses stay
+full-strength until horse_energy drops to this point (~30 ticks of grace), then fade linearly to
+1.0 (no bonus, never a penalty below the pedestrian baseline — an exhausted horse is worth no
+more than walking, never worse) over the next ~30 ticks as energy approaches 0.
+
+`_horse_mult` replaces the flat `HORSE_CARRY_MULT`/`HORSE_SPEED_MULT`/`HORSE_COMBAT_MULT` checks
+at every site that uses them (`_add_resource`, `decide()`'s `horse_steps`, `_explore()`'s own
+`horse_steps`, `_combat_capability`, `_do_raid`'s `r_power`/`t_power`) — these are the three
+dimensions the user explicitly named as degrading ("移动速度,武力,携带数量"). Deliberately **not**
+applied to `HORSE_MOVE_COST_NEAR_ZERO` or `HORSE_PERCEPTION_MULT`, which stay constant for as
+long as `animal_husbandry(horse)` is known at all, matching the original request's own list.
+
+A new `avg_horse_energy_pct` metric (population-average `horse_energy / HORSE_ENERGY_MAX` across
+horse-owners only, 0 if none) was added for live observability, same pattern as
+`avg_diet_diversity`.
+
+Verified two ways: (1) a standalone unit-level sanity script exercising the update/taper math
+directly (cold-zone net-zero, temperate -50/tick drain, exact taper values at known energy
+levels, non-horse-owners completely unaffected, no negative/over-cap clamping) — confirmed exact
+match to the designed formulas; (2) the full 10-seed regression + 3-seed cold-zone diagnostic at
+the same seeds as the power-up above — all healthy, zero extinctions, cold-zone population/
+husbandry counts in the same strong range as the power-up's own results (e.g. seed 8: 462/447 at
+tick 2000). Shipped at the literal requested numbers with no narrowing.
+
 ### Climate Zones
 
 The map is divided into three horizontal climate bands (top to bottom):

@@ -414,11 +414,13 @@ HORSE_SPEED_MULT = 20              # _step_toward: a horse owner covers up to th
                                     # 1-tile-per-action movement; this changes that invariant for
                                     # horse owners specifically, so it's the highest-risk single
                                     # piece of this request.
-HORSE_PERCEPTION_MULT = 10         # both the terrain/food cell-scan radius (replaces
-                                    # HORSE_FORAGE_CELL_CAP's fixed value with a multiplier off
-                                    # the zone-wide COLD_ZONE_FORAGE_CELL_CAP) and the resident-
-                                    # detection radius used for near_res (raid/social/mate
-                                    # targeting) are widened for a horse owner.
+HORSE_PERCEPTION_MULT = 10         # terrain/food cell-scan radius only (replaces the ordinary
+                                    # PERCEPTION_CELL_CAP baseline with a 10x multiplier for a
+                                    # horse owner) -- deliberately NOT applied to the separate
+                                    # resident-detection radius (`radius`) that near_res uses,
+                                    # since that already reaches 60-65 at high perception/
+                                    # sociability; reach for other residents stays governed by
+                                    # the already-tested HORSE_RAID_RANGE instead.
 HORSE_COMBAT_MULT = 5.0            # applied to _capability() specifically at raid-related power-
                                     # ratio comparisons (OPPORTUNISTIC/TERRITORIAL/NOMADIC_WINTER
                                     # raid gates) and to the actual strength-based win/loss roll
@@ -427,6 +429,33 @@ HORSE_COMBAT_MULT = 5.0            # applied to _capability() specifically at ra
                                     # gravitation, not a military one) since the request was
                                     # specifically "武力值" (combat/martial power), not general
                                     # capability.
+# Horse's own energy pool (direct follow-up request): the horse itself now needs upkeep, not
+# just the rider's own energy -- a real grazing constraint on how far the power-up above can be
+# exploited. Deterministic, no random() calls anywhere in this mechanic, so unlike most of this
+# session's probability-threshold changes it carries none of the RNG-divergence-chaos risk.
+# Net change per tick is replenish - consumption: exactly 0 in the cold zone (the horse's native
+# range, LIVESTOCK_ARCHETYPES), a steady -50/tick everywhere else -- so a horse maintains
+# indefinitely near cold-zone grazing but runs down over roughly 60 ticks of continuous
+# non-cold operation. See Simulation._tick for the update and _horse_bonus_scale for how it
+# feeds back into HORSE_CARRY_MULT/HORSE_SPEED_MULT/HORSE_COMBAT_MULT (the three the user
+# explicitly named -- not HORSE_MOVE_COST_NEAR_ZERO or HORSE_PERCEPTION_MULT, which stay
+# constant for as long as animal_husbandry(horse) is known at all, matching the original
+# request's own list of what should degrade).
+HORSE_ENERGY_MAX = 3000.0                  # mirrors MAX_ENERGY's "full caloric reserve" scale
+HORSE_ENERGY_REPLENISH_COLD = 500.0        # "在寒带基本不会消耗...每天可以补充500卡路里"
+HORSE_ENERGY_REPLENISH_OTHER = 450.0       # "进入温带,每个tick补充的卡路里只有450" -- the
+                                             # request only named temperate explicitly; tropical
+                                             # is treated the same (non-cold) since horses are a
+                                             # cold-zone-exclusive archetype in the first place
+                                             # (LIVESTOCK_ARCHETYPES) and have no natural range
+                                             # in either warm zone.
+HORSE_ENERGY_CONSUMPTION = 500.0           # "消耗也是500卡路里" -- constant regardless of zone
+HORSE_ENERGY_DEGRADE_THRESHOLD = 1500.0    # bonuses are full-strength at or above this (half of
+                                             # HORSE_ENERGY_MAX); below it they fade linearly to
+                                             # zero (not negative -- an exhausted horse is worth
+                                             # no more than walking, never worse) as horse_energy
+                                             # approaches 0. First-pass value: ~30 ticks of grace
+                                             # before fading starts, ~30 more to fully fade.
 MAX_HEALTH = 100.0
 SEASON_LENGTH = 8
 TRAIT_MUTATION = 0.15
@@ -1524,6 +1553,11 @@ class Resident:
     # cluster) measurably improves the next generation -- hybrid vigor/heterosis, not just a
     # return to baseline. See INBREEDING_LOAD_ACCUMULATION and Traits.blend.
     inbreeding_load: float = 0.0
+    # Horse's own energy pool (see HORSE_ENERGY_MAX etc.) -- -1.0 sentinel means "not yet
+    # initialized"; set to HORSE_ENERGY_MAX the first tick _has_horse(r) is true (see
+    # Simulation._tick), which naturally covers both fresh invention and hereditary/taught
+    # acquisition without needing to touch every acquisition call site individually.
+    horse_energy: float = -1.0
 
     def view_radius(self):
         return max(1, int((PERCEPTION_BASE_RADIUS + self.traits.sociability * 6 + 2) * self.traits.perception * 1.5) + 4 + int(self.traits.perception * 2)) + 2
@@ -2031,12 +2065,33 @@ def _has_horse(r):
     return r.known_knowledge.get('animal_husbandry', {}).get('crop_type') == 'horse'
 
 
+def _horse_bonus_scale(r):
+    """0..1 scale from the horse's own energy pool (see HORSE_ENERGY_* and the per-tick update
+    in Simulation._tick) -- 1.0 while the horse is well-maintained (energy at or above
+    HORSE_ENERGY_DEGRADE_THRESHOLD), fading linearly toward 0.0 (no bonus, never a penalty
+    below the pedestrian baseline) as the horse's energy runs out from too much non-cold-zone
+    travel. Only feeds the three multipliers the user explicitly named as degrading (carry,
+    speed, combat) -- HORSE_MOVE_COST_NEAR_ZERO and HORSE_PERCEPTION_MULT are unaffected."""
+    if r.horse_energy < 0:
+        return 1.0  # not yet initialized this tick (first tick with a horse) -- treat as full
+    return max(0.0, min(1.0, r.horse_energy / HORSE_ENERGY_DEGRADE_THRESHOLD))
+
+
+def _horse_mult(r, base_mult):
+    """base_mult tapered toward 1.0 (no bonus) by _horse_bonus_scale, for horse-owners only."""
+    if not _has_horse(r):
+        return 1.0
+    scale = _horse_bonus_scale(r)
+    return 1.0 + (base_mult - 1.0) * scale
+
+
 def _combat_capability(r):
-    """_capability scaled by HORSE_COMBAT_MULT for horse-owners -- a mounted raider/defender is
-    a real martial advantage (steppe cavalry precedent). Used only at the raid power-ratio
-    comparisons below, never at FOLLOW STRONGER's plain capability comparison (that's about
-    general provider quality, not combat)."""
-    return _capability(r) * (HORSE_COMBAT_MULT if _has_horse(r) else 1.0)
+    """_capability scaled by HORSE_COMBAT_MULT (tapered by the horse's own energy -- see
+    _horse_mult) for horse-owners -- a mounted raider/defender is a real martial advantage
+    (steppe cavalry precedent). Used only at the raid power-ratio comparisons below, never at
+    FOLLOW STRONGER's plain capability comparison (that's about general provider quality, not
+    combat)."""
+    return _capability(r) * _horse_mult(r, HORSE_COMBAT_MULT)
 
 
 def _is_outsider(r, res, group_root):
@@ -2063,12 +2118,11 @@ def _add_resource(r, good, amount):
     callers that also deduct from a source (trade, raiding) only remove what really moved.
 
     A horse owner's effective ceiling is multiplied by HORSE_CARRY_MULT (direct request,
-    "携带能力提高五倍") -- a mount carries far more than a person alone."""
+    "携带能力提高五倍"), tapered by the horse's own energy (see _horse_mult) -- a mount carries
+    far more than a person alone, but a spent horse carries no more than a person."""
     if amount <= 0:
         return 0.0
-    cap = r.traits.carrying_capacity
-    if r.known_knowledge.get('animal_husbandry', {}).get('crop_type') == 'horse':
-        cap *= HORSE_CARRY_MULT
+    cap = r.traits.carrying_capacity * _horse_mult(r, HORSE_CARRY_MULT)
     total_held = sum(r.resources.values())
     room = max(0.0, cap - total_held)
     added = min(amount, room)
@@ -2145,8 +2199,10 @@ def decide(r, grid, residents, tick, pressure=0.0, buckets=None, group_root=None
     cells = _nearby_cells(r.x, r.y, cell_radius, grid)
     near_res = _nearby_residents(r.x, r.y, radius, residents, buckets)
     here = grid[r.y][r.x]
-    horse_steps = HORSE_SPEED_MULT if has_horse else 1  # direct request "移动速度增加20倍" --
-                                                           # see _step_toward's steps parameter
+    horse_steps = max(1, round(_horse_mult(r, HORSE_SPEED_MULT)))  # direct request "移动速度
+                                    # 增加20倍" -- see _step_toward's steps parameter; tapered by
+                                    # the horse's own energy via _horse_mult (a spent horse
+                                    # covers 1 tile like anyone else)
 
     season = SEASONS[(tick // SEASON_LENGTH) % 4]
 
@@ -2587,8 +2643,7 @@ def decide(r, grid, residents, tick, pressure=0.0, buckets=None, group_root=None
 
 
 def _explore(r, cells, grid, near_res=None):
-    has_horse = _has_horse(r)
-    horse_steps = HORSE_SPEED_MULT if has_horse else 1
+    horse_steps = max(1, round(_horse_mult(r, HORSE_SPEED_MULT)))
     known = {(m.x, m.y) for m in r.memory}
     # Gifted scouts (see is_gifted_scout) in a temperate zone are exceptional at spotting
     # genuinely unclaimed land, not just high-biomass land -- real farming suitability is
@@ -3290,8 +3345,8 @@ def _do_raid(r, target_id, residents_by_id, tick):
     if target is None or not target.alive or abs(r.x - target.x) + abs(r.y - target.y) > 1:
         return None
 
-    r_power = r.traits.strength * random.uniform(0.6, 1.4) * (HORSE_COMBAT_MULT if _has_horse(r) else 1.0)
-    t_power = target.traits.strength * random.uniform(0.6, 1.4) * (HORSE_COMBAT_MULT if _has_horse(target) else 1.0)
+    r_power = r.traits.strength * random.uniform(0.6, 1.4) * _horse_mult(r, HORSE_COMBAT_MULT)
+    t_power = target.traits.strength * random.uniform(0.6, 1.4) * _horse_mult(target, HORSE_COMBAT_MULT)
 
     if r_power > t_power:
         stolen = min(target.energy * 0.4, 600)
@@ -3684,6 +3739,18 @@ class Simulation:
             if r.energy < 0:
                 r.energy = 0
             r.energy_spent_today += _energy_before_upkeep - r.energy
+
+            # Horse's own energy pool (see HORSE_ENERGY_* comment block) -- deterministic, no
+            # random() call, so this update ordering (before decide() runs later this same tick)
+            # just means today's horse_energy already reflects this tick's zone before the
+            # carry/speed/combat bonuses it feeds (via _horse_bonus_scale) get used below.
+            if _has_horse(r):
+                if r.horse_energy < 0:
+                    r.horse_energy = HORSE_ENERGY_MAX
+                replenish = (HORSE_ENERGY_REPLENISH_COLD if climate_zone(r.y) == 'cold'
+                             else HORSE_ENERGY_REPLENISH_OTHER)
+                r.horse_energy = max(0.0, min(HORSE_ENERGY_MAX,
+                                               r.horse_energy + replenish - HORSE_ENERGY_CONSUMPTION))
 
             # Population pressure multiplier — mild below capacity, brutal above. A cold-zone
             # resident uses their OWN regional pressure (see self._zone_pressure above) instead
@@ -4150,6 +4217,11 @@ class Simulation:
                 livestock_type_counts[lt] = livestock_type_counts.get(lt, 0) + 1
         avg_ag_tech_mult = round(sum(c.ag_tech_mult for row in self.grid for c in row) / (GRID_W * GRID_H), 3)
 
+        horse_owners = [r for r in living if _has_horse(r)]
+        avg_horse_energy_pct = (round(100.0 * sum(max(0.0, r.horse_energy) for r in horse_owners)
+                                       / (len(horse_owners) * HORSE_ENERGY_MAX), 1)
+                                 if horse_owners else 0.0)
+
         mining_holders = sum(1 for r in living if 'mining' in r.known_knowledge)
         mineral_type_counts: dict[str, int] = {}
         for r in living:
@@ -4220,6 +4292,7 @@ class Simulation:
             'fertilizer_holders': fertilizer_holders,
             'crop_types': crop_type_counts,
             'livestock_types': livestock_type_counts,
+            'avg_horse_energy_pct': avg_horse_energy_pct,
             'avg_ag_tech_mult': avg_ag_tech_mult,
             'mining_holders': mining_holders,
             'mineral_types': mineral_type_counts,
