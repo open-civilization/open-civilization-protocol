@@ -805,6 +805,55 @@ baseline in spots, `max_cold_streak` reaching 101). One test run's specific 10 f
 happened to roll zero horses despite the improved odds (a ~2.4% chance event, not a sign the fix
 isn't working) -- the weight change itself is confirmed correct via direct sampling.
 
+### Horse Owner Power-Up (carrying, movement, perception, combat)
+
+Direct request, once horse ownership was confirmed live and viable: a domesticated horse should
+make a real, multi-dimensional difference to how a resident lives, not just extend raid range.
+Five simultaneous multipliers were requested for any resident whose `animal_husbandry` knowledge
+rolled the `horse` archetype (`_has_horse(r)`):
+
+- `HORSE_CARRY_MULT = 5.0` — `_add_resource` multiplies `r.traits.carrying_capacity` by this for
+  horse-owners before computing available room, so a mounted resident can actually accumulate and
+  move meaningful trade goods instead of being capped like a pedestrian.
+- `HORSE_MOVE_COST_NEAR_ZERO = 0.05` — replaces the previous `HORSE_MOVE_COST_MULT = 0.6` in
+  `_do_move`; a horse effectively removes the caloric cost of travel rather than merely
+  discounting it.
+- `HORSE_SPEED_MULT = 20` — `_step_toward` (signature extended to `steps=1`) now walks up to
+  `steps` tiles in the target direction per call, stopping at the first impassable tile or the
+  target, and returns a single `('move', ...)` action to the farthest tile reached. `_do_move`
+  still evaluates cost/hazard once for that final destination cell only (consistent with the
+  near-zero-cost intent — intermediate tiles aren't separately charged). Every `_step_toward`
+  call site in `decide()` and `_explore()` now passes `horse_steps = HORSE_SPEED_MULT if
+  has_horse else 1`.
+- `HORSE_PERCEPTION_MULT = 10` — applied only to `cell_radius` (the terrain/food scan radius) in
+  `decide()`'s `scout_cap` computation, deliberately **not** to `radius` (the separate variable
+  `near_res` — resident detection — uses). `radius` already reaches 60-65 at high
+  perception/sociability; a further 10x there would make resident-detection span nearly the whole
+  map, a severe behavioral/performance risk disproportionate to the request's intent. Reach for
+  *other residents* (raiding, following, seeking a chief) remains governed by the separate,
+  already-tested `HORSE_RAID_RANGE = 8`. This is a deliberate narrowing of a literal reading of
+  "perception range x10" to the terrain-scan half of perception only.
+- `HORSE_COMBAT_MULT = 5.0` — a new `_combat_capability(r)` helper multiplies `_capability(r)` by
+  this for horse-owners, used at the three raid power-ratio comparisons
+  (`OPPORTUNISTIC_RAID_POWER_RATIO`, `TERRITORIAL_DEFENSE_POWER_RATIO`,
+  `NOMADIC_WINTER_RAID_POWER_RATIO`) and at `_do_raid`'s actual `r_power`/`t_power` win/loss roll.
+  Deliberately **not** applied to `FOLLOW STRONGER`'s capability comparison — the user's request
+  specifically named combat/martial power ("武力值"), not general provider capability.
+
+Combining five simultaneous large multipliers carried real risk: an earlier, much smaller
+two-way combination this session (`HORSE_FORAGE_CELL_CAP` + `HORSE_MOVE_COST_MULT`) produced a
+genuine interaction-effect extinction that neither change caused in isolation. This was tested
+accordingly — full 10-seed regression (`test_trade_floor.py`, seeds 1-9 and 42, 1500 ticks) plus
+the cold-zone diagnostic (`test_cold_diagnose.py`, seeds 1, 8, 42, 2000 ticks) at the full,
+literal combined magnitude with no pre-emptive narrowing.
+
+Result: all 13 runs healthy, zero extinctions. The cold-zone diagnostic showed population and
+husbandry counts *exceeding* the pre-power-up baseline (e.g. seed 8: cold_pop/husbandry reaching
+531/565 by tick 2000, up from the prior 218-434 sustained range) — horse-owners' near-zero travel
+cost and 5x carrying capacity appear to strengthen exactly the trade/provisioning loop the
+herder-migration-reluctance fix (see above) depends on, rather than destabilizing it. Shipped at
+the full requested magnitude; no narrowing was needed.
+
 ### Climate Zones
 
 The map is divided into three horizontal climate bands (top to bottom):

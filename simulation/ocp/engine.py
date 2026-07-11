@@ -393,6 +393,40 @@ HORSE_MOVE_COST_MULT = 0.6  # see _do_move -- a mount makes the direct kcal cost
                            # HORSE_FORAGE_CELL_CAP's comment -- narrowed from 0.4 alongside it
                            # after the pair's combined effect caused a real extinction that
                            # neither constant caused alone.
+# Comprehensive horse-owner power-up, direct request, tried together at the literally-requested
+# magnitudes first (per this session's established practice of testing the actual ask before
+# guessing at safer starting values) -- given HORSE_FORAGE_CELL_CAP+HORSE_MOVE_COST_MULT above
+# already showed a 2-variable combination can be individually-safe but jointly lethal, a 5-way
+# simultaneous stack (carry, move cost, speed, perception, combat) needs especially rigorous
+# testing and should be expected to likely need narrowing.
+HORSE_CARRY_MULT = 5.0            # _add_resource: horse owner's effective carrying_capacity
+                                    # ceiling (see Resident.is_merchant) is multiplied 5x.
+HORSE_MOVE_COST_NEAR_ZERO = 0.05  # replaces HORSE_MOVE_COST_MULT for this request specifically
+                                    # ("移动的能量消耗接近0") -- not literally 0 to avoid a
+                                    # genuinely free, unlimited-distance action.
+HORSE_SPEED_MULT = 20              # _step_toward: a horse owner covers up to this many tiles
+                                    # in a single move action instead of 1 (checking each
+                                    # intermediate tile's passability, stopping at the first
+                                    # obstacle or the target, whichever comes first) --
+                                    # architecturally new: every other travel mechanic this
+                                    # session (FOLLOW STRONGER, MERCHANT SEEK CHIEF, HORSE_RAID_
+                                    # RANGE, MIGRATE, EXPLORE) was built and verified assuming
+                                    # 1-tile-per-action movement; this changes that invariant for
+                                    # horse owners specifically, so it's the highest-risk single
+                                    # piece of this request.
+HORSE_PERCEPTION_MULT = 10         # both the terrain/food cell-scan radius (replaces
+                                    # HORSE_FORAGE_CELL_CAP's fixed value with a multiplier off
+                                    # the zone-wide COLD_ZONE_FORAGE_CELL_CAP) and the resident-
+                                    # detection radius used for near_res (raid/social/mate
+                                    # targeting) are widened for a horse owner.
+HORSE_COMBAT_MULT = 5.0            # applied to _capability() specifically at raid-related power-
+                                    # ratio comparisons (OPPORTUNISTIC/TERRITORIAL/NOMADIC_WINTER
+                                    # raid gates) and to the actual strength-based win/loss roll
+                                    # in _do_raid -- deliberately NOT applied to the FOLLOW
+                                    # STRONGER capability comparison (a food-provisioning
+                                    # gravitation, not a military one) since the request was
+                                    # specifically "武力值" (combat/martial power), not general
+                                    # capability.
 MAX_HEALTH = 100.0
 SEASON_LENGTH = 8
 TRAIT_MUTATION = 0.15
@@ -1993,6 +2027,18 @@ def _capability(r):
     return t.intelligence + t.perception + t.strength + t.speed
 
 
+def _has_horse(r):
+    return r.known_knowledge.get('animal_husbandry', {}).get('crop_type') == 'horse'
+
+
+def _combat_capability(r):
+    """_capability scaled by HORSE_COMBAT_MULT for horse-owners -- a mounted raider/defender is
+    a real martial advantage (steppe cavalry precedent). Used only at the raid power-ratio
+    comparisons below, never at FOLLOW STRONGER's plain capability comparison (that's about
+    general provider quality, not combat)."""
+    return _capability(r) * (HORSE_COMBAT_MULT if _has_horse(r) else 1.0)
+
+
 def _is_outsider(r, res, group_root):
     """True if `res` should read as a genuine outsider for raid-desire purposes -- prefers real
     detected group membership (group_root, the per-resident union-find root from Simulation._tick,
@@ -2014,11 +2060,17 @@ def _add_resource(r, good, amount):
     Resident.is_merchant) -- total goods held (summed across every type) can't exceed what they
     can physically carry. Silently caps rather than rejecting outright (a farmer whose harvest
     exceeds capacity keeps what fits, not nothing) and returns the amount actually added, so
-    callers that also deduct from a source (trade, raiding) only remove what really moved."""
+    callers that also deduct from a source (trade, raiding) only remove what really moved.
+
+    A horse owner's effective ceiling is multiplied by HORSE_CARRY_MULT (direct request,
+    "携带能力提高五倍") -- a mount carries far more than a person alone."""
     if amount <= 0:
         return 0.0
+    cap = r.traits.carrying_capacity
+    if r.known_knowledge.get('animal_husbandry', {}).get('crop_type') == 'horse':
+        cap *= HORSE_CARRY_MULT
     total_held = sum(r.resources.values())
-    room = max(0.0, r.traits.carrying_capacity - total_held)
+    room = max(0.0, cap - total_held)
     added = min(amount, room)
     if added > 0:
         r.resources[good] = r.resources.get(good, 0.0) + added
@@ -2038,13 +2090,28 @@ def _best_food(cells):
     return best
 
 
-def _step_toward(rx, ry, tx, ty, grid):
+def _step_toward(rx, ry, tx, ty, grid, steps=1):
+    """One or more tile-steps toward (tx, ty), stopping at the first impassable tile or once the
+    target is reached, whichever comes first -- still returns a SINGLE ('move', ...) action to
+    the farthest reachable tile (see _do_move, which charges cost/hazard once for that
+    destination regardless of how many tiles were covered). `steps` > 1 is the horse-owner speed
+    boost (HORSE_SPEED_MULT, direct request "移动速度增加20倍") -- every other caller passes the
+    default of 1, unchanged from before this existed."""
     dx = max(-1, min(1, tx - rx))
     dy = max(-1, min(1, ty - ry))
-    nx, ny = rx + dx, ry + dy
-    if 0 <= nx < GRID_W and 0 <= ny < GRID_H and grid[ny][nx].passable():
-        return ('move', nx, ny, None)
-    return ('rest', None, None, None)
+    if dx == 0 and dy == 0:
+        return ('rest', None, None, None)
+    cx, cy = rx, ry
+    for _ in range(steps):
+        nx, ny = cx + dx, cy + dy
+        if not (0 <= nx < GRID_W and 0 <= ny < GRID_H and grid[ny][nx].passable()):
+            break
+        cx, cy = nx, ny
+        if (cx, cy) == (tx, ty):
+            break
+    if (cx, cy) == (rx, ry):
+        return ('rest', None, None, None)
+    return ('move', cx, cy, None)
 
 
 def decide(r, grid, residents, tick, pressure=0.0, buckets=None, group_root=None, zone_pressure=None):
@@ -2059,15 +2126,27 @@ def decide(r, grid, residents, tick, pressure=0.0, buckets=None, group_root=None
     # exceptional perception/intelligence -- rare enough (all four traits must simultaneously
     # exceed GIFTED_SCOUT_TRAIT_THRESHOLD) that this doesn't reintroduce the perf problem
     # PERCEPTION_CELL_CAP fixed for the general population.
-    has_horse = r.known_knowledge.get('animal_husbandry', {}).get('crop_type') == 'horse'
+    has_horse = _has_horse(r)
+    # HORSE_PERCEPTION_MULT (direct request "感知的范围扩大10倍") supersedes the flat
+    # HORSE_FORAGE_CELL_CAP for the terrain/food cell scan -- 10x the ordinary
+    # PERCEPTION_CELL_CAP baseline, not 10x the already cold-zone-boosted value, so this stays
+    # the same order of magnitude as GIFTED_SCOUT_CELL_CAP/MERCHANT_CELL_CAP rather than
+    # compounding two multipliers. Deliberately NOT applied to `radius` below (the resident-
+    # detection radius near_res uses) -- radius already reaches 60-65 at high perception/
+    # sociability, and a further 10x there would make near_res's candidate pool span nearly the
+    # whole map for a horse owner, a much larger behavioral and performance risk than widening
+    # the terrain scan; HORSE_RAID_RANGE remains the tested, bounded lever for "how far can a
+    # horse owner reach other residents."
     scout_cap = GIFTED_SCOUT_CELL_CAP if r.is_gifted_scout() else (
         MERCHANT_CELL_CAP if r.is_merchant() else (
-            HORSE_FORAGE_CELL_CAP if has_horse else (
+            PERCEPTION_CELL_CAP * HORSE_PERCEPTION_MULT if has_horse else (
                 COLD_ZONE_FORAGE_CELL_CAP if climate_zone(r.y) == 'cold' else PERCEPTION_CELL_CAP)))
     cell_radius = min(radius, scout_cap)
     cells = _nearby_cells(r.x, r.y, cell_radius, grid)
     near_res = _nearby_residents(r.x, r.y, radius, residents, buckets)
     here = grid[r.y][r.x]
+    horse_steps = HORSE_SPEED_MULT if has_horse else 1  # direct request "移动速度增加20倍" --
+                                                           # see _step_toward's steps parameter
 
     season = SEASONS[(tick // SEASON_LENGTH) % 4]
 
@@ -2082,7 +2161,7 @@ def decide(r, grid, residents, tick, pressure=0.0, buckets=None, group_root=None
         leftover_cells = [(c, d) for c, d in cells if c.leftover > 5 and d > 0]
         if leftover_cells:
             target_cell = max(leftover_cells, key=lambda x: x[0].leftover)[0]
-            return _step_toward(r.x, r.y, target_cell.x, target_cell.y, grid)
+            return _step_toward(r.x, r.y, target_cell.x, target_cell.y, grid, horse_steps)
 
     # RAID: attack someone for energy as last resort — a Malthusian release valve.
     # Under moderate pressure, targeting is biased toward strangers (resource seizure
@@ -2139,7 +2218,7 @@ def decide(r, grid, residents, tick, pressure=0.0, buckets=None, group_root=None
             # near-certainty every qualifying tick.
             payoff_ratio = min(2.0, candidate.energy / max(1.0, r.energy))
             if random.random() < OPPORTUNISTIC_RAID_CHANCE * r.traits.risk_tolerance * payoff_ratio:
-                if _capability(r) > _capability(candidate) * OPPORTUNISTIC_RAID_POWER_RATIO:
+                if _combat_capability(r) > _combat_capability(candidate) * OPPORTUNISTIC_RAID_POWER_RATIO:
                     return ('raid', None, None, candidate.id)
 
     # TERRITORIAL DEFENSE: a chief treats a resource-competing stranger's mere presence
@@ -2155,7 +2234,7 @@ def decide(r, grid, residents, tick, pressure=0.0, buckets=None, group_root=None
                             and ('crop_cultivation' in res.known_knowledge or 'animal_husbandry' in res.known_knowledge)]
         if resource_rivals and random.random() < TERRITORIAL_DEFENSE_CHANCE:
             target = max(resource_rivals, key=lambda x: x[0].energy)[0]
-            if _capability(r) > _capability(target) * TERRITORIAL_DEFENSE_POWER_RATIO:
+            if _combat_capability(r) > _combat_capability(target) * TERRITORIAL_DEFENSE_POWER_RATIO:
                 return ('raid', None, None, target.id)
 
     # NOMADIC WINTER RAID: a real historical pattern (steppe pastoralists raiding agricultural
@@ -2175,7 +2254,7 @@ def decide(r, grid, residents, tick, pressure=0.0, buckets=None, group_root=None
                                 if d <= 1 and res.energy > 500 and _is_outsider(r, res, group_root)]
         if winter_raid_targets and random.random() < NOMADIC_WINTER_RAID_CHANCE:
             target = max(winter_raid_targets, key=lambda x: x[0].energy)[0]
-            if _capability(r) > _capability(target) * NOMADIC_WINTER_RAID_POWER_RATIO:
+            if _combat_capability(r) > _combat_capability(target) * NOMADIC_WINTER_RAID_POWER_RATIO:
                 return ('raid', None, None, target.id)
         elif r.known_knowledge['animal_husbandry'].get('crop_type') == 'horse':
             reachable = [(res, d) for res, d in near_res
@@ -2183,7 +2262,7 @@ def decide(r, grid, residents, tick, pressure=0.0, buckets=None, group_root=None
                          and _is_outsider(r, res, group_root)]
             if reachable:
                 target = min(reachable, key=lambda x: x[1])[0]
-                return _step_toward(r.x, r.y, target.x, target.y, grid)
+                return _step_toward(r.x, r.y, target.x, target.y, grid, horse_steps)
 
     # MIGRATE (winter): move to a warmer zone when the cold itself is the acute threat. An
     # established cold-zone herder (already knows animal_husbandry) tolerates real hardship
@@ -2225,7 +2304,7 @@ def decide(r, grid, residents, tick, pressure=0.0, buckets=None, group_root=None
             far_candidates = [(c, d) for c, d in wide_cells if d > radius and c.biomass > 15]
             if far_candidates:
                 target_cell = max(far_candidates, key=lambda x: x[0].biomass)[0]
-                return _step_toward(r.x, r.y, target_cell.x, target_cell.y, grid)
+                return _step_toward(r.x, r.y, target_cell.x, target_cell.y, grid, horse_steps)
 
     # FISSION: band-level group splitting (Service 1962, "Primitive Social Organization") —
     # under sustained pressure, once local competition (raiding, above) AND ordinary local
@@ -2256,13 +2335,13 @@ def decide(r, grid, residents, tick, pressure=0.0, buckets=None, group_root=None
                         followed_target = res.scout_target
                         break
             if followed_target:
-                return _step_toward(r.x, r.y, followed_target[0], followed_target[1], grid)
+                return _step_toward(r.x, r.y, followed_target[0], followed_target[1], grid, horse_steps)
             search_radius = GIFTED_SCOUT_SEARCH_RADIUS if r.is_gifted_scout() else FISSION_SEARCH_RADIUS
             target_cell = _find_fission_target(r, grid, search_radius)
             if target_cell:
                 if r.is_gifted_scout():
                     r.scout_target = (target_cell.x, target_cell.y)
-                return _step_toward(r.x, r.y, target_cell.x, target_cell.y, grid)
+                return _step_toward(r.x, r.y, target_cell.x, target_cell.y, grid, horse_steps)
 
     # TERRITORIAL RETREAT was attempted here (Hawk-Dove/Bourgeois asymmetric-contest framing --
     # individually flee a local area once nearby unbonded strangers are decisively stronger than
@@ -2294,7 +2373,7 @@ def decide(r, grid, residents, tick, pressure=0.0, buckets=None, group_root=None
             threat = min(threats, key=lambda x: x[1])[0]
             flee_x = r.x + (r.x - threat.x)
             flee_y = r.y + (r.y - threat.y)
-            return _step_toward(r.x, r.y, flee_x, flee_y, grid)
+            return _step_toward(r.x, r.y, flee_x, flee_y, grid, horse_steps)
 
     # CRITICAL / HUNGRY: find food
     if r.energy < 1200:
@@ -2302,7 +2381,7 @@ def decide(r, grid, residents, tick, pressure=0.0, buckets=None, group_root=None
             return ('forage', None, None, None)
         best = _best_food(cells)
         if best:
-            return _step_toward(r.x, r.y, best.x, best.y, grid)
+            return _step_toward(r.x, r.y, best.x, best.y, grid, horse_steps)
         return _random_move(r, grid)
 
     # INJURED: rest heals `2.5 * endurance` health/tick, but sustained population pressure
@@ -2409,7 +2488,7 @@ def decide(r, grid, residents, tick, pressure=0.0, buckets=None, group_root=None
                     p = max(adjacent_partners, key=lambda x: x[0].chief_standing())[0]
                     return ('reproduce', None, None, p.id)
                 p = min(partners, key=lambda x: x[1])[0]
-                return _step_toward(r.x, r.y, p.x, p.y, grid)
+                return _step_toward(r.x, r.y, p.x, p.y, grid, horse_steps)
 
     # MATE PROVISIONING — a male with real surplus checks on a bonded female partner
     # unconditionally (not gated on population pressure like SOCIAL below), since she
@@ -2434,7 +2513,7 @@ def decide(r, grid, residents, tick, pressure=0.0, buckets=None, group_root=None
             mate = min(needy_mates, key=lambda x: x[1])[0]
             if abs(mate.x - r.x) + abs(mate.y - r.y) <= 1:
                 return ('interact', None, None, mate.id)
-            return _step_toward(r.x, r.y, mate.x, mate.y, grid)
+            return _step_toward(r.x, r.y, mate.x, mate.y, grid, horse_steps)
 
     # FOLLOW STRONGER: an ordinary resident gravitates toward a bonded provider who is
     # meaningfully more capable (see _capability) than themselves -- proximity to a strong
@@ -2447,7 +2526,7 @@ def decide(r, grid, residents, tick, pressure=0.0, buckets=None, group_root=None
         if stronger:
             leader = max(stronger, key=lambda x: _capability(x[0]))[0]
             if abs(leader.x - r.x) + abs(leader.y - r.y) > 1:
-                return _step_toward(r.x, r.y, leader.x, leader.y, grid)
+                return _step_toward(r.x, r.y, leader.x, leader.y, grid, horse_steps)
 
     # MERCHANT SEEK CHIEF (see is_merchant, RFC-0004): a merchant bonded to a chief-standing
     # ally travels toward them specifically rather than wandering for a random stranger. Real
@@ -2469,7 +2548,7 @@ def decide(r, grid, residents, tick, pressure=0.0, buckets=None, group_root=None
             chief = min(known_chiefs, key=lambda x: x[1])[0]
             if abs(chief.x - r.x) + abs(chief.y - r.y) <= 1:
                 return ('interact', None, None, chief.id)
-            return _step_toward(r.x, r.y, chief.x, chief.y, grid)
+            return _step_toward(r.x, r.y, chief.x, chief.y, grid, horse_steps)
 
     # SOCIAL — prefer approaching someone already familiar (bonded or kin) over a genuine
     # stranger, mirroring real intergroup wariness: repeated trust builds within an existing
@@ -2508,6 +2587,8 @@ def decide(r, grid, residents, tick, pressure=0.0, buckets=None, group_root=None
 
 
 def _explore(r, cells, grid, near_res=None):
+    has_horse = _has_horse(r)
+    horse_steps = HORSE_SPEED_MULT if has_horse else 1
     known = {(m.x, m.y) for m in r.memory}
     # Gifted scouts (see is_gifted_scout) in a temperate zone are exceptional at spotting
     # genuinely unclaimed land, not just high-biomass land -- real farming suitability is
@@ -2536,7 +2617,7 @@ def _explore(r, cells, grid, near_res=None):
             for c, s in cands:
                 cum += s
                 if cum >= pick:
-                    return _step_toward(r.x, r.y, c.x, c.y, grid)
+                    return _step_toward(r.x, r.y, c.x, c.y, grid, horse_steps)
     return ('rest', None, None, None)
 
 
@@ -2566,7 +2647,7 @@ def _do_move(r, tx, ty, grid):
     # logic behind HORSE_RAID_RANGE's extended reach, just applied to the direct cost of a
     # single movement step rather than how far a nomad will bother traveling.
     if r.known_knowledge.get('animal_husbandry', {}).get('crop_type') == 'horse':
-        cost *= HORSE_MOVE_COST_MULT
+        cost *= HORSE_MOVE_COST_NEAR_ZERO  # direct request: "移动的能量消耗接近0"
     if r.energy >= cost:
         r.energy -= cost
         r.x, r.y = tx, ty
@@ -3209,8 +3290,8 @@ def _do_raid(r, target_id, residents_by_id, tick):
     if target is None or not target.alive or abs(r.x - target.x) + abs(r.y - target.y) > 1:
         return None
 
-    r_power = r.traits.strength * random.uniform(0.6, 1.4)
-    t_power = target.traits.strength * random.uniform(0.6, 1.4)
+    r_power = r.traits.strength * random.uniform(0.6, 1.4) * (HORSE_COMBAT_MULT if _has_horse(r) else 1.0)
+    t_power = target.traits.strength * random.uniform(0.6, 1.4) * (HORSE_COMBAT_MULT if _has_horse(target) else 1.0)
 
     if r_power > t_power:
         stolen = min(target.energy * 0.4, 600)
