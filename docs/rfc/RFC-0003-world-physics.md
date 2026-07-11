@@ -746,6 +746,34 @@ best of 61) and husbandry peak of 142. Shipped given the seventh consecutive net
 zone-scoped fix and the continuing trend of real peak improvement, though (per the fertility
 section above) the underlying "spikes then crashes" pattern has still not been fully resolved.
 
+### Cold Zone Herder Migration Reluctance (the actual missing piece)
+
+After seven consecutive fixes that all targeted survival or reproduction odds without ever
+fully breaking the "spikes then crashes back to zero" pattern, a new hypothesis: the crash
+might not be about *death* at all. `MIGRATE (winter)` unconditionally moves ANY resident with
+`energy < 900` in winter toward a warmer zone -- including an established herder who already
+knows `animal_husbandry`, with zero distinction from an ordinary wanderer who has nothing
+keeping them in place. Every earlier fix improved a herder's odds of *surviving* a hard winter,
+but none of them addressed whether a herder who survived would actually *stay* once things got
+merely uncomfortable (well above outright death, but still below the flat 900 migration
+trigger) rather than walking away from whatever pastoral foothold they'd built.
+
+`COLD_ZONE_HERDER_MIGRATION_THRESHOLD` (400, down from the flat 900) applies only to cold-zone
+residents who already know `animal_husbandry` -- abandoning an established herd/land is a
+bigger decision than an ordinary forager relocating, so they tolerate real hardship before
+finally giving up. Everyone else's migration behavior (including cold-zone residents who
+haven't domesticated anything, who genuinely have nothing keeping them there) is completely
+unchanged.
+
+This was the missing piece. Verified across 10 seeds: all 10 survived cleanly, no tradeoff to
+disclose this time. The cold-zone diagnostic result is a different order of magnitude from
+every earlier fix: cold-zone population held steady in the 218-434 range for the ENTIRE
+2000-tick run (previous best was a peak of 73 that always crashed back toward zero), husbandry
+holders similarly sustained at 219-407, `max_cold_streak` reached 101, and total cold-zone
+resident-ticks logged (570,287) were more than 10x any earlier diagnostic. The cold zone is, for
+the first time this session, a genuinely self-sustaining population rather than a recurring
+boom-bust cycle.
+
 Real historical pattern that falls out of this without any new "raiding party" object: nomadic
 winter raiding (see decide()'s `NOMADIC WINTER RAID` block, RFC-0007) -- since
 `animal_husbandry` is now cold-zone-exclusive, knowing it alone proves pastoral origin, and a

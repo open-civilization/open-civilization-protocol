@@ -911,6 +911,18 @@ COLD_ZONE_WINTER_HUNT_BONUS = 10.0  # direct request: "哪怕冬季，都可以�
                                  # (not a regrow-rate change, not a global change) -- deliberately
                                  # avoids the RNG-divergence chaos class that sank the direct
                                  # winter-regrow attempt earlier this session.
+COLD_ZONE_HERDER_MIGRATION_THRESHOLD = 400.0  # see MIGRATE (winter) in decide() -- an
+                                 # established cold-zone herder tolerates real hardship (down to
+                                 # this much lower energy level) before finally giving up and
+                                 # migrating away, instead of the flat 900 threshold that applies
+                                 # to everyone else, including a cold-zone resident who hasn't
+                                 # domesticated anything and genuinely has nothing keeping them
+                                 # there. Targets a specific, previously-untested hypothesis for
+                                 # the "spikes then crashes back to zero" pattern every earlier
+                                 # cold-zone fix left unresolved: population may be leaving via
+                                 # ordinary winter emigration, not dying, so no amount of
+                                 # improving survival/reproduction odds fixes a population that
+                                 # walks away the moment conditions get merely uncomfortable.
 FISHING_BASE_BONUS = 25.0            # between farming's and husbandry's -- a real, secondary
                                        # economy specific to water tiles, richest near the island
 FISHING_SKILL_BONUS = 60.0
@@ -2162,8 +2174,21 @@ def decide(r, grid, residents, tick, pressure=0.0, buckets=None, group_root=None
                 target = min(reachable, key=lambda x: x[1])[0]
                 return _step_toward(r.x, r.y, target.x, target.y, grid)
 
-    # MIGRATE (winter): move to a warmer zone when the cold itself is the acute threat
-    if r.energy < 900 and season == 'winter' and climate_zone(r.y) != 'tropical':
+    # MIGRATE (winter): move to a warmer zone when the cold itself is the acute threat. An
+    # established cold-zone herder (already knows animal_husbandry) tolerates real hardship
+    # before giving up and leaving -- abandoning a herd/land they've already invested in is a
+    # bigger decision than an ordinary forager with nothing to lose relocating, so they use a
+    # much lower trigger threshold (COLD_ZONE_HERDER_MIGRATION_THRESHOLD) than everyone else's
+    # flat 900. This directly targets a real, previously-unexamined hypothesis for the cold
+    # zone's persistent "spikes then crashes back to zero" pattern: the crash may be substantially
+    # driven by residents successfully SURVIVING winter but still emigrating anyway (this
+    # unconditional 900 threshold applied to husbandry-holders too, with no distinction from an
+    # ordinary wanderer), not by outright death -- every fix so far targeted survival/reproduction
+    # odds, none touched whether an established herder actually stays once conditions ease.
+    herder_migration_threshold = (COLD_ZONE_HERDER_MIGRATION_THRESHOLD
+                                   if climate_zone(r.y) == 'cold' and 'animal_husbandry' in r.known_knowledge
+                                   else 900)
+    if r.energy < herder_migration_threshold and season == 'winter' and climate_zone(r.y) != 'tropical':
         if r.y > 52:  # Already in tropical
             pass
         elif r.y > 26:  # In temperate, move toward tropical
