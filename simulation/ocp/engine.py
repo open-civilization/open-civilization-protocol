@@ -675,7 +675,18 @@ CROP_ARCHETYPES = {
 LIVESTOCK_ARCHETYPES = {
     'sheep':  {'energy_density_mult': 0.9, 'zone_weights': {'cold': 3.0}},
     'cattle': {'energy_density_mult': 1.3, 'zone_weights': {'cold': 2.5}},
-    'horse':  {'energy_density_mult': 0.85, 'zone_weights': {'cold': 1.5}},
+    'horse':  {'energy_density_mult': 0.85, 'zone_weights': {'cold': 2.5}},  # raised from 1.5 on
+                # direct request -- now that established herders actually stay put (see
+                # COLD_ZONE_HERDER_MIGRATION_THRESHOLD), the horse-specific transportation
+                # bonuses (HORSE_FORAGE_CELL_CAP, HORSE_MOVE_COST_MULT, HORSE_RAID_RANGE) have
+                # real material to work with, but live data showed 100% of current cold-zone
+                # herders had rolled cattle -- horse was the rarest of the three archetypes and
+                # had never actually appeared. Matches cattle's weight now instead of trailing
+                # both other options; _pick_archetype's random.choices call always consumes the
+                # same amount of randomness regardless of which weight wins, so this doesn't
+                # carry the RNG-divergence chaos risk that probability-THRESHOLD changes
+                # (disease, migration triggers) have shown this session -- a pure weight
+                # reallocation among already-equally-likely-to-fire outcomes.
 }
 
 # Dietary diversity (see recent_food_types on Resident and _do_forage) -- real nutrition: a

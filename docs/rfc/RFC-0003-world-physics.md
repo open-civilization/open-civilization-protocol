@@ -784,6 +784,27 @@ party"; when many individually-migrating herders share the same disposition and 
 farmland in the same winter, the aggregate reads as coordinated, but each decision is
 individual.
 
+### Horse Discovery Weight
+
+Follow-up per direct request, once the herder-migration-reluctance breakthrough made a
+sustained cold-zone population real: live data showed 100% of current cold-zone herders had
+rolled `cattle` -- `horse` (the archetype the transportation bonuses `HORSE_FORAGE_CELL_CAP`/
+`HORSE_MOVE_COST_MULT`/`HORSE_RAID_RANGE` key off) was the rarest of the three
+`LIVESTOCK_ARCHETYPES` options (`zone_weights['cold']`: sheep 3.0, cattle 2.5, horse 1.5, about
+21% of picks) and had never actually appeared. Raised horse's weight to 2.5, matching cattle
+(Monte-Carlo-verified new split: ~37% sheep / 32% cattle / 31% horse).
+
+Lower risk than most changes this session: `_pick_archetype`'s `random.choices` call always
+consumes the same amount of randomness regardless of which option wins, so reallocating weights
+among already-equally-likely-to-fire outcomes doesn't carry the RNG-divergence chaos risk that
+probability-*threshold* changes (disease multipliers, migration triggers) have shown repeatedly
+this session. Verified across the same 10 seeds: all 10 fully healthy, and the cold-zone
+diagnostic showed the herder-migration-reluctance breakthrough not just holding but improving
+further (population sustained 186-360 the whole 2000-tick run, up from 218-434's already-strong
+baseline in spots, `max_cold_streak` reaching 101). One test run's specific 10 founding herders
+happened to roll zero horses despite the improved odds (a ~2.4% chance event, not a sign the fix
+isn't working) -- the weight change itself is confirmed correct via direct sampling.
+
 ### Climate Zones
 
 The map is divided into three horizontal climate bands (top to bottom):
