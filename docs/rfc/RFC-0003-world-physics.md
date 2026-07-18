@@ -1001,6 +1001,59 @@ gave a clean same-seed A/B specifically on the user's actual complaint — horse
 A genuine, measurable improvement in horse-ownership persistence, not just a neutral addition —
 shipped at `CHILD_CARE_RANGE = 25`.
 
+### Wolf Pack: Raid Kill Chance + Pack Cohesion Bonus
+
+Direct follow-up, reframing "population control" specifically: the user's model is horse-mounted
+raiders as a real apex predator, analogous to a wolf pack that (a) actually kills prey to keep the
+wider population in check, not just wounds/robs it, and (b) survives better as a genuine cluster
+(mutual defense, cooperative hunting), not just as more-capable individuals. Two independent
+mechanics, both scoped to horse owners specifically (not raiding/survival in general):
+
+**Raid kill chance** (`_do_raid`): the winning side of a raid resolution gets a real, immediate
+kill chance when they're a horse owner, scaled by how decisive that specific encounter's power
+gap was (`RAID_KILL_CHANCE_BASE = 0.05` at a 2x+ power ratio, scaling linearly down to 0 at
+parity). Previously, `_do_raid` only ever stole energy/resources and wounded — death was solely
+an indirect, later consequence of accumulated health loss. Implemented by setting the loser's
+health to 0 rather than duplicating death bookkeeping — the existing end-of-tick health<=0 sweep
+in `Simulation._tick` already owns all of that (widowhood, `total_deaths`, death_tick/cause), so
+this reuses that single correct path. `RAID_KILL_ENABLED` toggle added for same-seed A/B, matching
+`CHILD_CARE_ENABLED`'s precedent — flagged from the outset as this session's highest-risk kind of
+change (a genuinely new death-probability channel, on top of the RNG-divergence-chaos risk any
+such channel carries).
+
+**Pack cohesion bonus**: reduces the SAME calorie-deficit health erosion `COLD_ZONE_EROSION_MULT`
+already discounts for the cold zone generally, scaled continuously by how many OTHER horse owners
+are within `HORSE_PACK_RADIUS = 6` (deliberately much tighter than `near_res`'s ~60-65 — this is
+about genuine physical mutual protection, not wide-ranging detection). `HORSE_PACK_EROSION_MULT_
+PER_MEMBER = 0.1` (-10% erosion/death-zone damage per nearby packmate), capped at `HORSE_PACK_MAX_
+BONUS = 0.5` (never full immunity). Reuses the existing bucketed `_nearby_residents` lookup (the
+same O(k)-not-O(n) mechanism `decide()` already relies on), so this adds negligible per-tick cost
+given horse owners are a small population share. Deliberately continuous/deterministic — no new
+`random()` call, just an extra multiplier on an already-deterministic health-loss formula — so
+unlike the raid-kill mechanic above, this does NOT carry the RNG-divergence-chaos risk that has
+caused every prior probability-threshold incident this session; `HORSE_PACK_BONUS_ENABLED` toggle
+added regardless, for consistency and future A/B isolation.
+
+**Verification**: full 10-seed regression (`test_trade_floor.py`) + 3-seed cold-zone diagnostic
+with both mechanics active — all healthy, zero extinctions, cold-zone numbers in the same strong
+range as prior milestones (e.g. seed 42: cold_pop reaching 420 by tick 2000, FINAL pop 1389).
+Raid-kill rate confirmed low and controlled via a dedicated diagnostic wrapping `_do_raid` to count
+kill-flagged messages: 0.21%–0.31% of all raids resulted in a kill (44–51 total kills over 2000
+ticks per seed), population still grew healthily throughout every tested seed — a real but
+measured predation effect, not a runaway extinction spiral.
+
+Pack-bonus's specific effect on horse population persistence was less conclusive: a same-seed A/B
+(`HORSE_PACK_BONUS_ENABLED` on/off, tracking live horse-holder count) showed a mixed result across
+just 2 seeds (seed 1: zero_frac 38.96%→19.36%, improved; seed 8: zero_frac 15.20%→23.12%, worse) —
+horse population is inherently noisy at this scale (per the Child Care section above, still
+volatile even after that fix), and 2 seeds isn't enough to separate a real effect from sampling
+noise on such a small sub-population. Shipped anyway since (a) the underlying mechanism is sound
+and low-risk (deterministic, reuses proven bucketed lookup, capped magnitude), (b) it doesn't
+compromise overall population safety (confirmed via the full regression/cold-diagnostic above),
+and (c) it's the correct mechanism for the user's actual request (mutual protection when
+clustered) regardless of whether 2 seeds happened to show a clean win — a larger seed sample would
+be needed to make a confident persistence claim either way.
+
 ### Climate Zones
 
 The map is divided into three horizontal climate bands (top to bottom):

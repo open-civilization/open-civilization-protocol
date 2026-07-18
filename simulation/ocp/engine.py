@@ -479,6 +479,45 @@ HORSE_ENERGY_DEGRADE_THRESHOLD = 1500.0    # bonuses are full-strength at or abo
                                              # no more than walking, never worse) as horse_energy
                                              # approaches 0. First-pass value: ~30 ticks of grace
                                              # before fading starts, ~30 more to fully fade.
+# Raid kill chance (direct request: horse-mounted raiders should function as real apex
+# predators controlling the wider population, "wolf pack" -- a real wolf pack kills prey
+# outright, it doesn't just wound and rob it). Existing _do_raid only ever steals energy/
+# resources and wounds; death was only ever an indirect, later consequence of accumulated
+# health loss. This adds a genuine, immediate kill chance to the WINNING side of a raid when
+# they're a horse owner, scaled by how decisive the power gap was -- a narrow win stays a
+# wound (like today), a real mismatch (a mounted raider overwhelming an ordinary farmer,
+# especially with HORSE_COMBAT_MULT=5.0's power gap) has a real chance of ending the
+# encounter outright. Explicitly NOT extended to non-horse raiders -- this is about horse
+# owners specifically functioning as the "predator class," not raiding in general becoming
+# more lethal.
+#
+# This is a genuinely new death-probability channel (the exact class of change this session's
+# postmortems (TROPICAL_ZONE_DISEASE_MULT, unconditional crop yield) have repeatedly shown
+# carries real RNG-divergence-chaos risk, on top of the more direct risk of just being a new
+# lethal mechanic). RAID_KILL_CHANCE_BASE deliberately starts low and RAID_KILL_ENABLED exists
+# purely for same-seed A/B isolation, matching CHILD_CARE_ENABLED's precedent.
+RAID_KILL_ENABLED = True
+RAID_KILL_CHANCE_BASE = 0.05   # chance at a decisive (2x+) power gap; scales down linearly
+                                 # toward 0 as the gap narrows toward parity -- see _do_raid.
+# Horse pack cohesion bonus (direct request: real wolf packs survive better clustered together
+# -- mutual defense, huddling, cooperative hunting -- not just as more-capable individuals).
+# Reduces the SAME calorie-deficit health erosion COLD_ZONE_EROSION_MULT already discounts for
+# the cold zone generally, scaled continuously by how many OTHER horse owners are within
+# HORSE_PACK_RADIUS -- a lone rider gets nothing extra, a genuine pack gets real protection.
+# Deliberately continuous/deterministic (no new random() call, just an extra multiplier on an
+# existing health-loss formula) -- this session's RNG-divergence-chaos incidents have always
+# come from probability-THRESHOLD changes or short-circuits that alter how many random() calls
+# fire per tick, not from scaling an already-deterministic amount, so this carries materially
+# lower risk than the raid-kill mechanic above despite also being a new mechanic.
+HORSE_PACK_BONUS_ENABLED = True   # A/B toggle, same precedent as CHILD_CARE_ENABLED/RAID_KILL_ENABLED
+HORSE_PACK_RADIUS = 6              # "genuinely nearby," much tighter than near_res's ~60-65 --
+                                     # this is about physical mutual protection, not wide-ranging
+                                     # detection.
+HORSE_PACK_EROSION_MULT_PER_MEMBER = 0.1   # -10% erosion/death-zone health loss per nearby
+                                             # horse-owning ally
+HORSE_PACK_MAX_BONUS = 0.5                  # capped at -50% even with a large pack, so this
+                                              # narrows risk but never makes a clustered horse
+                                              # owner literally immune to calorie-deficit damage
 MAX_HEALTH = 100.0
 SEASON_LENGTH = 8
 TRAIT_MUTATION = 0.15
@@ -3460,6 +3499,21 @@ def _do_raid(r, target_id, residents_by_id, tick):
         # extraction rather than granting the raider anything they didn't individually win.
         # Excludes kin (Hamilton's rule, matching decide()'s RAID stranger-targeting bias) and
         # never stacks -- a resident can only be coerced by one controller at a time.
+        # Raid kill chance -- see RAID_KILL_CHANCE_BASE's comment (horse-mounted raiders as a
+        # real predator class, direct request). Scoped to horse-owning winners only, scaled by
+        # how decisive THIS encounter's power gap was (0 at parity, full RAID_KILL_CHANCE_BASE
+        # at 2x+). Rolled before coercion since a killed target obviously can't be coerced
+        # afterward. Sets health to 0 rather than setting alive=False directly here -- the
+        # existing end-of-tick health<=0 sweep in Simulation._tick already owns all the actual
+        # death bookkeeping (widowhood, total_deaths, death_tick/cause), so this reuses that
+        # single, already-correct code path instead of duplicating it.
+        if RAID_KILL_ENABLED and _has_horse(r):
+            power_ratio = r_power / max(1.0, t_power)
+            kill_chance = RAID_KILL_CHANCE_BASE * min(1.0, max(0.0, power_ratio - 1.0))
+            if random.random() < kill_chance:
+                target.health = 0
+                return f'{r.name} raided and killed {target.name} — stole {stolen:.0f} food{resource_msg}'
+
         coercion_msg = ''
         if (target.coerced_by is None and r_power > t_power * COERCION_POWER_RATIO
                 and _relatedness(r, target) < 0.25
@@ -3867,6 +3921,12 @@ class Simulation:
             in_crisis = r.energy < death_zone
             recovering = r.energy > erosion_threshold
             erosion_mult = COLD_ZONE_EROSION_MULT if climate_zone(r.y) == 'cold' else 1.0
+            if HORSE_PACK_BONUS_ENABLED and _has_horse(r):
+                pack_size = sum(1 for res, d in _nearby_residents(r.x, r.y, HORSE_PACK_RADIUS, living, resident_buckets)
+                                 if _has_horse(res))
+                if pack_size > 0:
+                    pack_mult = max(1.0 - HORSE_PACK_MAX_BONUS, 1.0 - pack_size * HORSE_PACK_EROSION_MULT_PER_MEMBER)
+                    erosion_mult *= pack_mult
             if r.energy < erosion_threshold:
                 deficit = (erosion_threshold - r.energy) / erosion_threshold
                 r.health -= HEALTH_EROSION_RATE * deficit * pressure_mult * erosion_mult
