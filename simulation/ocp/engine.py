@@ -280,6 +280,29 @@ FEMALE_FORAGE_MULT = 0.7  # raised from 0.5 -- with instrumented testing showing
 # -- needlessly high, since the share formula's own floor already capped what he'd give away.
 # Lowering both the trigger and the post-share floor lets males help with a more modest,
 # realistic surplus rather than only when fully comfortable.
+CHILD_CARE_ENABLED = True   # A/B testing toggle for the CHILD CARE branch in decide() -- lets
+                              # a same-seed control run isolate this specific mechanism's effect
+                              # from everything else, matching this session's established
+                              # RNG-divergence-chaos diagnostic technique (any new early-return
+                              # branch changes how many random() calls fire per tick, which can
+                              # shift a susceptible seed's entire trajectory).
+CHILD_CARE_RANGE = 25   # hard cap on how far a parent will travel toward a needy child (see
+                          # CHILD CARE in decide()) -- a same-seed A/B on seed 42 showed the
+                          # FIRST version of this mechanic (unbounded, full-map residents_by_id
+                          # lookup) collapsed the cold zone to near-zero (husbandry 168->0 by
+                          # tick 800) while every other seed looked fine, a real, reproducible
+                          # causal regression, not RNG-chaos noise (confirmed by comparing against
+                          # the disabled control, which matched the established healthy baseline
+                          # almost exactly). Root cause: INFANT_AGE (5 ticks) is a tiny window, so
+                          # an ordinary 1-tile/tick parent chasing a child born far away (e.g. from
+                          # REPRODUCE's wide-radius exogamy fallback) can never arrive before the
+                          # child ages out -- pure wasted movement, displacing FORAGE (CHILD CARE
+                          # sits above it, same as MATE PROVISIONING) with zero chance of ever
+                          # helping. Cold-zone lineages hit this disproportionately because horse
+                          # owners' own wide-radius reach makes far-flung exogamous births more
+                          # common for them specifically. This cap still comfortably covers a
+                          # horse owner's actual use case (HORSE_SPEED_MULT covers 25 tiles in a
+                          # single move) while bounding the pointless-chase cost for everyone else.
 MATE_PROVISIONING_ENERGY_THRESHOLD = 1400.0   # was an implicit 1800
 MATE_PROVISIONING_SHARE_FLOOR = 1000.0        # was an implicit 1500 (giver's post-share floor);
                                                 # still above NUTRITION_STRESS_ENERGY (900) so
@@ -1558,6 +1581,13 @@ class Resident:
     # Simulation._tick), which naturally covers both fresh invention and hereditary/taught
     # acquisition without needing to touch every acquisition call site individually.
     horse_energy: float = -1.0
+    # IDs of every child this resident has ever had (as either parent, see _spawn) -- lets a
+    # parent look up their own still-dependent offspring's CURRENT position directly by ID
+    # (O(1) via Simulation._tick's residents_by_id, see CHILD CARE in decide()) even when the
+    # child isn't within near_res, the same way a spouse lookup would need to. Only ever
+    # appended to, never pruned when a child dies or grows up -- decide() filters by
+    # aliveness/age at read time instead, so this stays a simple append-only lineage record.
+    children_ids: list = field(default_factory=list)
 
     def view_radius(self):
         return max(1, int((PERCEPTION_BASE_RADIUS + self.traits.sociability * 6 + 2) * self.traits.perception * 1.5) + 4 + int(self.traits.perception * 2)) + 2
@@ -1968,9 +1998,11 @@ def _spawn(rid, grid, tick, parent=None, partner=None, spawn_center_x=None):
         # familiarity bias, which already treats kin as "familiar" targets).
         child.bonds[parent.id] = Bond(parent.id, 0.3, tick)
         parent.bonds[child.id] = Bond(child.id, 0.3, tick)
+        parent.children_ids.append(child.id)
         if partner:
             child.bonds[partner.id] = Bond(partner.id, 0.3, tick)
             partner.bonds[child.id] = Bond(child.id, 0.3, tick)
+            partner.children_ids.append(child.id)
     child.known_knowledge = inherited_knowledge
     cap = child.knowledge_capacity()
     if len(child.known_knowledge) > cap:
@@ -2168,7 +2200,8 @@ def _step_toward(rx, ry, tx, ty, grid, steps=1):
     return ('move', cx, cy, None)
 
 
-def decide(r, grid, residents, tick, pressure=0.0, buckets=None, group_root=None, zone_pressure=None):
+def decide(r, grid, residents, tick, pressure=0.0, buckets=None, group_root=None, zone_pressure=None,
+           residents_by_id=None):
     radius = r.view_radius() + int(r.traits.sociability * 2)
     # _nearby_cells is O(radius^2) (a grid-cell bounding-box scan, not bucketable the same way
     # as residents) -- view_radius() can reach 60-65 at high perception/sociability, making a
@@ -2570,6 +2603,32 @@ def decide(r, grid, residents, tick, pressure=0.0, buckets=None, group_root=None
             if abs(mate.x - r.x) + abs(mate.y - r.y) <= 1:
                 return ('interact', None, None, mate.id)
             return _step_toward(r.x, r.y, mate.x, mate.y, grid, horse_steps)
+
+    # CHILD CARE: a parent with real energy surplus looks after their own still-dependent
+    # offspring (age < INFANT_AGE, the same early-vulnerability window INFANT_MORTALITY_CHANCE
+    # already recognizes) wherever they currently are -- not limited to near_res, since a
+    # parent who's traveled far (a horse owner above all, see HORSE_SPEED_MULT/HORSE_RAID_RANGE)
+    # needs an active pull back toward a SPECIFIC, already-known child, not just whoever happens
+    # to be nearby. Direct request: reproduction itself doesn't need a fixed partner
+    # (STRANGER_REPRODUCTION_CHANCE above already allows opportunistic mating), but genuine
+    # responsibility to offspring that already exist is a separate, second drive -- a wide-
+    # ranging rider still needs a real reason to bring resources back home rather than drifting
+    # indefinitely. Looks up each living child by ID via residents_by_id (O(1) each, reusing the
+    # dict Simulation._tick already builds once per tick -- NOT a population scan) -- same
+    # single-fixed-target safety property as MATE PROVISIONING/FOLLOW STRONGER (a specific known
+    # individual, never a "best" candidate re-evaluated fresh each tick), so this doesn't
+    # reintroduce the persistent-re-targeting failure mode documented on FOLLOW STRONGER/the
+    # reverted territorial-retreat attempt. Sex-independent, unlike mate provisioning above --
+    # real parental investment isn't provider-sex-limited the way the pair-bond model here is.
+    if CHILD_CARE_ENABLED and r.children_ids and r.energy > MATE_PROVISIONING_ENERGY_THRESHOLD and residents_by_id:
+        needy_children = [c for c in (residents_by_id.get(cid) for cid in r.children_ids)
+                           if c is not None and c.alive and c.age < INFANT_AGE and c.energy < 2200
+                           and abs(c.x - r.x) + abs(c.y - r.y) <= CHILD_CARE_RANGE]
+        if needy_children:
+            child = min(needy_children, key=lambda c: abs(c.x - r.x) + abs(c.y - r.y))
+            if abs(child.x - r.x) + abs(child.y - r.y) <= 1:
+                return ('interact', None, None, child.id)
+            return _step_toward(r.x, r.y, child.x, child.y, grid, horse_steps)
 
     # FOLLOW STRONGER: an ordinary resident gravitates toward a bonded provider who is
     # meaningfully more capable (see _capability) than themselves -- proximity to a strong
@@ -3189,6 +3248,28 @@ def _do_interact(r, target_id, residents_by_id, tick, pressure=0.0):
     target.bonds[r.id].last_tick = tick
     r.bonds[target.id].interactions += 1
     target.bonds[r.id].interactions += 1
+
+    # Child care -- a parent proactively feeds their own still-dependent offspring (age <
+    # INFANT_AGE, the same early-vulnerability window INFANT_MORTALITY_CHANCE already
+    # recognizes), independent of which sex the parent or child is (real parental investment
+    # isn't male-only the way pair-bond provisioning below is). Direct request: reproduction
+    # itself doesn't require a fixed partner, but responsibility to offspring that already
+    # exist does -- see the CHILD CARE branch in decide() for the travel side of this (looking
+    # up a specific known child by ID even when far from home, not just reacting once adjacent).
+    # Checked before mate provisioning below since a birth-bond (quality 0.3, see _spawn)
+    # already exceeds REPRODUCTION_BOND_THRESHOLD (0.1) -- without this ordering, a father
+    # feeding his own infant daughter would silently fall through mate provisioning's own
+    # target.sex=='female' check instead, which happens to produce the same energy transfer but
+    # the wrong bond-quality reasoning and message.
+    if (CHILD_CARE_ENABLED and target.id in r.children_ids and target.age < INFANT_AGE
+            and r.energy > MATE_PROVISIONING_ENERGY_THRESHOLD and target.energy < 2200):
+        share = min(500, max(0, r.energy - MATE_PROVISIONING_SHARE_FLOOR))
+        r.energy -= share
+        r.energy_given_away += share  # Big Man standing readout, see chief_standing
+        target.energy = min(MAX_ENERGY, target.energy + share * 0.9)
+        r.bonds[target.id].quality = min(1.0, r.bonds[target.id].quality + 0.15)
+        target.bonds[r.id].quality = min(1.0, target.bonds[r.id].quality + 0.2)
+        return f'{r.name} cared for {target.name}'
 
     # Mate provisioning — since females produce no personal energy from foraging (see
     # _do_forage), a bonded male reliably shares surplus with her rather than this depending
@@ -4027,7 +4108,8 @@ class Simulation:
                              'x': r.x, 'y': r.y})
             else:
                 action, tx, ty, tid = decide(r, self.grid, living, tick, self._pressure, resident_buckets,
-                                              getattr(self, '_group_root', {}), getattr(self, '_zone_pressure', None))
+                                              getattr(self, '_group_root', {}), getattr(self, '_zone_pressure', None),
+                                              residents_by_id)
 
             msg = None
             _energy_before_action = r.energy

@@ -927,6 +927,80 @@ the same seeds as the power-up above — all healthy, zero extinctions, cold-zon
 husbandry counts in the same strong range as the power-up's own results (e.g. seed 8: 462/447 at
 tick 2000). Shipped at the literal requested numbers with no narrowing.
 
+### Child Care (the second drive: offspring survival, not just personal energy)
+
+Direct follow-up, reframing why horse-owner crop_type kept appearing then vanishing rather than
+building up a persistent population the way sheep/cattle do (see Horse Discovery Weight above,
+which addressed *rediscovery odds* but not this). The user's model: every resident has two
+drives — energy first (forage/farm/store/shelter, whether or not currently hungry — this is what
+produces agriculture, housing, raiding), and gene propagation second (find a mate, and *make sure
+the mate and offspring survive*), and this second drive applies to farmers/herders/chiefs/
+merchants/riders alike. A wide-ranging horse rider specifically doesn't need a fixed spouse (its
+own reproduction can stay opportunistic — see STRANGER_REPRODUCTION_CHANCE), but real offspring
+that already exist create a genuine pull to return home and provide for them.
+
+**The actual architecture gap this exposed**: REPRODUCE (and MATE_PROVISIONING) only ever act on
+a partner already inside `near_res` (the ordinary nearby-detection radius, ~60-65 at most) — there
+was no mechanism anywhere that made a resident travel back toward a *specific already-known*
+family member once out of range. Sheep/cattle owners never exposed this gap because they rarely
+leave the cold zone (10-18% ever leave, per the horse survival diagnostic above); horse owners are
+the one group that reliably does (85-89% leave, max south excursion reaching the literal map edge
+in every tested seed) — so they're the only ones who structurally lose contact with home.
+
+**New Resident field**: `children_ids: list` (append-only, populated in `_spawn` on both parent
+and partner at birth) — lets a parent look up a specific child's CURRENT position by ID via
+`Simulation._tick`'s existing `residents_by_id` dict (already built once per tick for other
+purposes — O(1) lookup, not a new O(n) population scan, and now threaded through as a new
+`decide()` parameter).
+
+**New CHILD CARE branch in `decide()`** (placed right after MATE PROVISIONING, same priority
+tier): a parent with real energy surplus (`MATE_PROVISIONING_ENERGY_THRESHOLD`) and at least one
+still-dependent child (`age < INFANT_AGE`, the same 5-tick early-vulnerability window
+`INFANT_MORTALITY_CHANCE` already recognizes) who is energy-needy travels toward the nearest such
+child and feeds them once adjacent. Sex-independent (unlike mate provisioning, which is
+male-only) — real parental investment isn't provider-sex-limited. Matching `_do_interact` branch
+added (checked *before* mate provisioning, since a birth-bond's starting quality of 0.3 already
+exceeds `REPRODUCTION_BOND_THRESHOLD` (0.1) — without the explicit child-care branch taking
+precedence, a father feeding his own infant daughter would silently fall through mate
+provisioning's own `target.sex=='female'` check instead, same effect but the wrong reasoning and
+message).
+
+**A real regression found and fixed via this session's established A/B-control technique**: the
+first version had no distance cap on the child lookup (deliberately, to reach a horse owner who'd
+wandered arbitrarily far). A same-seed A/B on seed 42 (this session's most reliable canary) showed
+this version collapsed the cold zone from a healthy, established population to near-zero
+(husbandry 168→0 by tick 800, staying near-zero through tick 2000) while the disabled control
+matched the established healthy baseline almost exactly — a real, reproducible causal regression,
+not RNG-chaos noise. Root cause: `INFANT_AGE` is a tiny 5-tick window, so an ordinary 1-tile/tick
+parent chasing a child born far away (e.g. from REPRODUCE's own wide-radius exogamy fallback) can
+essentially never arrive before the child ages out of the "needy" filter — pure wasted movement,
+displacing FORAGE (CHILD CARE sits above it, same tier as MATE PROVISIONING) for zero chance of
+ever helping. Cold-zone lineages hit this disproportionately because horse owners' own wide reach
+makes far-flung exogamous births more common for them specifically, so their most productive
+members kept getting drawn into unwinnable chases. Fixed with `CHILD_CARE_RANGE = 25` — a hard cap
+on chase distance, comfortably covering a horse owner's real use case (`HORSE_SPEED_MULT` covers
+25 tiles in a single move) while bounding the pointless-chase cost for everyone else. Also added
+`CHILD_CARE_ENABLED` as a standing A/B-testing toggle (gates both the `decide()` branch and the
+`_do_interact` branch identically), matching this session's now-repeated need to isolate a single
+mechanism's effect from a same-seed control.
+
+**Verification**: full 10-seed regression + 3-seed cold-zone diagnostic with the range cap in
+place — all healthy, zero extinctions, seed 42's cold zone fully recovered (cold_pop/husbandry
+59→259 / 103→272 across the run, no collapse). A dedicated live-population time-series diagnostic
+(tracking each livestock crop_type's currently-alive count every tick, not just cumulative totals)
+gave a clean same-seed A/B specifically on the user's actual complaint — horse population
+"appearing then vanishing":
+
+| metric (3-seed range) | child care off | child care on (capped) |
+|---|---|---|
+| fraction of ticks at zero horse-holders | 44.8%–73.0% | 26.5%–54.1% (improved, all 3 seeds) |
+| longest consecutive zero-streak | 606–1239 ticks | 513–665 ticks (shorter, 2 of 3 seeds) |
+| peak horse-holder count | 46–105 | 63–159 (higher, all 3 seeds) |
+| avg count when nonzero | 10.3–23.1 | 16.4–29.0 (higher, all 3 seeds — seed 42 nearly 3x) |
+
+A genuine, measurable improvement in horse-ownership persistence, not just a neutral addition —
+shipped at `CHILD_CARE_RANGE = 25`.
+
 ### Climate Zones
 
 The map is divided into three horizontal climate bands (top to bottom):
