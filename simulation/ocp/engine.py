@@ -3548,6 +3548,9 @@ class Simulation:
         self.speed = 5
         self.total_births = 0
         self.total_deaths = 0
+        self.total_raid_kills = 0  # cumulative count of RAID_KILL_CHANCE_BASE actually firing
+                                     # (see _do_raid) -- surfaced as a metric for observability,
+                                     # same pattern as total_births/total_deaths.
         self.lock = threading.Lock()
         self._next_id = 0
         self._state_cache = None
@@ -3652,6 +3655,7 @@ class Simulation:
         sim.speed = data.get('speed', 5)
         sim.total_births = data.get('total_births', 0)
         sim.total_deaths = data.get('total_deaths', 0)
+        sim.total_raid_kills = data.get('total_raid_kills', 0)
         sim.lock = threading.Lock()
         sim._next_id = data.get('next_id', max((r.id for r in sim.residents), default=0))
         sim._state_cache = None
@@ -3669,6 +3673,7 @@ class Simulation:
                 'tick_count': self.tick_count,
                 'total_births': self.total_births,
                 'total_deaths': self.total_deaths,
+                'total_raid_kills': self.total_raid_kills,
                 'next_id': self._next_id,
                 'speed': self.speed,
                 'grid': [[_cell_to_dict(c) for c in row] for row in self.grid],
@@ -4183,6 +4188,8 @@ class Simulation:
                 msg = _do_interact(r, tid, residents_by_id, tick, self._pressure)
             elif action == 'raid':
                 msg = _do_raid(r, tid, residents_by_id, tick)
+                if msg and 'raided and killed' in msg:
+                    self.total_raid_kills += 1
             elif action == 'scavenge':
                 msg = _do_scavenge(r, self.grid)
             elif action == 'reproduce':
@@ -4396,6 +4403,7 @@ class Simulation:
             'deaths': deaths,
             'total_births': self.total_births,
             'total_deaths': self.total_deaths,
+            'total_raid_kills': self.total_raid_kills,
             'avg_age': round(sum(r.age for r in living) / max(1, n)),
             'max_gen': max((r.generation for r in living), default=0),
             'gini': round(gini, 3),

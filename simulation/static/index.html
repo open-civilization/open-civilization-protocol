@@ -166,6 +166,11 @@ canvas{image-rendering:pixelated}
     <div class="stat"><span class="label">Holders</span><span class="val" id="s-knowledge-holders">0</span></div>
     <div class="stat"><span class="label">Avg Skill</span><span class="val" id="s-knowledge-skill">0</span></div>
     <div class="stat"><span class="label">Ratio</span><span class="val" id="s-knowledge-ratio">0%</span></div>
+    <h2>🐴 Horse / Wolf Pack</h2>
+    <div class="stat"><span class="label">Herders</span><span class="val" id="s-herders">0</span></div>
+    <div class="stat"><span class="label">Livestock</span><span class="val" id="s-livestock" style="font-size:10px">—</span></div>
+    <div class="stat"><span class="label">Horse Energy</span><span class="val" id="s-horse-energy">—</span></div>
+    <div class="stat"><span class="label">Raid Kills</span><span class="val" id="s-raid-kills">0</span></div>
     <h2>Emergence</h2>
     <div class="stat"><span class="label">Gini (energy)</span><span class="val" id="s-gini">0</span></div>
     <div class="stat"><span class="label">Clustering</span><span class="val" id="s-cluster">0</span></div>
@@ -459,6 +464,26 @@ function updateStats() {
   $('s-energy').textContent = m.avg_energy || 0;
   $('s-health').textContent = m.avg_health || 0;
   $('s-age').textContent = m.avg_age || 0;
+
+  // Horse / Wolf Pack stats
+  $('s-herders').textContent = m.herder_holders || 0;
+  const lt = m.livestock_types || {};
+  const ltEntries = Object.entries(lt);
+  $('s-livestock').textContent = ltEntries.length
+    ? ltEntries.map(([k, v]) => `${k} ${v}`).join(' · ')
+    : '—';
+  const horseCount = lt.horse || 0;
+  const heEl = $('s-horse-energy');
+  if (horseCount > 0) {
+    const hePct = m.avg_horse_energy_pct || 0;
+    heEl.textContent = `${horseCount} @ ${hePct}%`;
+    heEl.className = 'val ' + (hePct > 50 ? 'green' : hePct > 15 ? 'yellow' : 'red');
+  } else {
+    heEl.textContent = '—';
+    heEl.className = 'val';
+  }
+  $('s-raid-kills').textContent = m.total_raid_kills || 0;
+
   $('s-gini').textContent = m.gini || 0;
   $('s-cluster').textContent = m.cluster || 0;
   $('s-cap').textContent = m.carrying_cap || '—';
