@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OCP — Century Report</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0d1117;color:#c9d1d9;font-family:'SF Mono',Menlo,Consolas,monospace;font-size:13px}
+header{padding:10px 16px;background:#161b22;border-bottom:1px solid #30363d;display:flex;align-items:center;gap:16px}
+header h1{font-size:15px;color:#58a6ff;font-weight:600;letter-spacing:.5px}
+header a{color:#8b949e;font-size:12px;text-decoration:none;padding:4px 12px;border:1px solid #30363d;border-radius:4px}
+header a:hover{background:#21262d;color:#c9d1d9}
+header .note{color:#8b949e;font-size:11px;margin-left:auto}
+#wrap{padding:16px;overflow-x:auto}
+table{border-collapse:collapse;width:100%;min-width:1400px}
+thead th{position:sticky;top:0;background:#161b22;color:#8b949e;text-transform:uppercase;letter-spacing:.5px;font-size:10px;text-align:right;padding:8px 10px;border-bottom:1px solid #30363d;white-space:nowrap}
+thead th:first-child,thead th:nth-child(2){text-align:left}
+tbody td{text-align:right;padding:6px 10px;border-bottom:1px solid #21262d;white-space:nowrap;color:#e6edf3}
+tbody td:first-child,tbody td:nth-child(2){text-align:left;color:#c9d1d9}
+tbody tr:hover{background:#161b22}
+.livestock{font-size:11px;color:#d29922}
+.muted{color:#484f58}
+.green{color:#3fb950}
+.red{color:#f85149}
+.empty-note{padding:40px;text-align:center;color:#8b949e;line-height:1.8}
+</style>
+</head>
+<body>
+<header>
+  <h1>OCP — Century Report</h1>
+  <a href="/">&larr; Back to Simulation</a>
+  <span class="note" id="meta-note"></span>
+</header>
+<div id="wrap"></div>
+
+<script>
+const $ = s => document.getElementById(s);
+
+function fmtLivestock(lt) {
+  const entries = Object.entries(lt || {});
+  return entries.length ? entries.map(([k, v]) => `${k} ${v}`).join(' · ') : '—';
+}
+
+function render(state) {
+  const rows = (state.century_history || []).slice().reverse();
+  const wrap = $('wrap');
+  $('meta-note').textContent = `tick ${state.metrics.tick} · year ${state.metrics.year} · seed ${state.seed}`;
+
+  if (!rows.length) {
+    wrap.innerHTML = `<div class="empty-note">
+      还没有产生百年数据 (century_history is empty)<br><br>
+      这份报表从部署这个功能的那一刻开始，每满 100 年记录一行——当前年份 ${state.metrics.year}，
+      距下一次记录还有 ${100 - (state.metrics.year % 100)} 年左右。<br>
+      This report only starts accumulating from the moment it was deployed; it can't retroactively
+      reconstruct centuries that already passed.
+    </div>`;
+    return;
+  }
+
+  const cols = [
+    ['Century', r => `#${r.century}`],
+    ['Years', r => `${r.year_start}–${r.year_end}`],
+    ['Population', r => r.pop],
+    ['Merchants', r => r.merchant_count],
+    ['Chiefs', r => r.chief_holders],
+    ['Priests', r => r.priest_holders],
+    ['Herders', r => r.herder_holders],
+    ['Livestock', r => `<span class="livestock">${fmtLivestock(r.livestock_types)}</span>`],
+    ['Farmers', r => r.farmer_holders],
+    ['Knowledge', r => `${r.knowledge_holders} (${(r.knowledge_ratio*100).toFixed(0)}%)`],
+    ['Language', r => r.language_holders],
+    ['Writing', r => r.writing_holders],
+    ['Groups', r => r.group_count],
+    ['Births', r => `<span class="green">+${r.births_this_century}</span>`],
+    ['Deaths', r => `<span class="red">-${r.deaths_this_century}</span>`],
+    ['Raid Kills', r => r.raid_kills_this_century],
+  ];
+
+  wrap.innerHTML = `<table>
+    <thead><tr>${cols.map(([label]) => `<th>${label}</th>`).join('')}</tr></thead>
+    <tbody>${rows.map(r => `<tr>${cols.map(([, fn]) => `<td>${fn(r)}</td>`).join('')}</tr>`).join('')}</tbody>
+  </table>`;
+}
+
+async function poll() {
+  try {
+    const res = await fetch('/api/state');
+    const state = await res.json();
+    render(state);
+  } catch (e) {
+    $('meta-note').textContent = 'connection error, retrying…';
+  }
+}
+
+poll();
+setInterval(poll, 3000);
+</script>
+</body>
+</html>

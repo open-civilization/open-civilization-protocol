@@ -520,6 +520,9 @@ HORSE_PACK_MAX_BONUS = 0.5                  # capped at -50% even with a large p
                                               # owner literally immune to calorie-deficit damage
 MAX_HEALTH = 100.0
 SEASON_LENGTH = 8
+CENTURY_TICKS = SEASON_LENGTH * 4 * 100   # 1 year = SEASON_LENGTH*4 ticks (see 'year' in metrics);
+                                            # direct request for a dedicated century-by-century
+                                            # summary table -- see Simulation.century_history.
 TRAIT_MUTATION = 0.15
 
 # ── Cognition Model (IQ / working memory / long-term knowledge capacity) ──
@@ -3544,6 +3547,14 @@ class Simulation:
         self.events: list[dict] = []
         self.all_events: list[dict] = []
         self.metrics_history: list[dict] = []
+        self.century_history: list[dict] = []  # one summary row per CENTURY_TICKS -- direct
+                                                  # request for a dedicated century-by-century
+                                                  # report page, separate from the rolling
+                                                  # metrics_history window (capped at 5000 ticks,
+                                                  # ~156 years -- nowhere near enough for a
+                                                  # multi-millennium run). Appends forever (one
+                                                  # row per 100 years is cheap indefinitely), so
+                                                  # unlike metrics_history this is never truncated.
         self.running = False
         self.speed = 5
         self.total_births = 0
@@ -3650,6 +3661,7 @@ class Simulation:
         sim.events = []
         sim.all_events = data.get('all_events', [])
         sim.metrics_history = data.get('metrics_history', [])
+        sim.century_history = data.get('century_history', [])
         sim.running = False  # never auto-resume ticking on load -- a fresh Simulation() also
                                # starts paused; the operator/frontend calls /api/start explicitly
         sim.speed = data.get('speed', 5)
@@ -3679,6 +3691,7 @@ class Simulation:
                 'grid': [[_cell_to_dict(c) for c in row] for row in self.grid],
                 'residents': [_resident_to_dict(r) for r in living],
                 'metrics_history': list(self.metrics_history),
+                'century_history': list(self.century_history),
                 'all_events': list(self.all_events),
             }
         # Write to a temp file and atomically rename over the real path (os.replace is atomic
@@ -4458,6 +4471,40 @@ class Simulation:
         if len(self.metrics_history) > 5000:
             self.metrics_history = self.metrics_history[-5000:]
 
+        # Century report -- one row every CENTURY_TICKS, forever (see century_history's comment
+        # on Simulation.__init__). Cumulative counters (births/deaths/raid kills) are recorded
+        # both as running totals and as this-century deltas (vs the previous row), since "how
+        # many happened during these 100 years" is the more readable number for a report table.
+        if tick > 0 and tick % CENTURY_TICKS == 0:
+            prev = self.century_history[-1] if self.century_history else None
+            prev_births = prev['total_births'] if prev else 0
+            prev_deaths = prev['total_deaths'] if prev else 0
+            prev_kills = prev['total_raid_kills'] if prev else 0
+            self.century_history.append({
+                'century': tick // CENTURY_TICKS,
+                'year_start': metrics['year'] - 100,
+                'year_end': metrics['year'],
+                'tick': tick,
+                'pop': metrics['pop'],
+                'merchant_count': metrics['merchant_count'],
+                'chief_holders': metrics['chief_holders'],
+                'priest_holders': metrics['priest_holders'],
+                'herder_holders': metrics['herder_holders'],
+                'livestock_types': dict(metrics['livestock_types']),
+                'farmer_holders': metrics['farmer_holders'],
+                'knowledge_holders': metrics['knowledge_holders'],
+                'knowledge_ratio': metrics['knowledge_ratio'],
+                'language_holders': metrics['language_holders'],
+                'writing_holders': metrics['writing_holders'],
+                'group_count': metrics['group_count'],
+                'births_this_century': self.total_births - prev_births,
+                'deaths_this_century': self.total_deaths - prev_deaths,
+                'raid_kills_this_century': self.total_raid_kills - prev_kills,
+                'total_births': self.total_births,
+                'total_deaths': self.total_deaths,
+                'total_raid_kills': self.total_raid_kills,
+            })
+
         self.events = evts
         self.all_events.extend(evts)
         if len(self.all_events) > 2000:
@@ -4530,6 +4577,7 @@ class Simulation:
                 'residents': res_data,
                 'metrics': m,
                 'history': self.metrics_history[-300:],
+                'century_history': self.century_history,
                 'events': self.all_events[-80:],
                 'running': self.running, 'speed': self.speed,
                 'seed': self.seed,
