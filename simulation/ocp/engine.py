@@ -4477,9 +4477,14 @@ class Simulation:
         # many happened during these 100 years" is the more readable number for a report table.
         if tick > 0 and tick % CENTURY_TICKS == 0:
             prev = self.century_history[-1] if self.century_history else None
-            prev_births = prev['total_births'] if prev else 0
-            prev_deaths = prev['total_deaths'] if prev else 0
-            prev_kills = prev['total_raid_kills'] if prev else 0
+            # The very first row has no real prior baseline -- total_births/deaths/raid_kills
+            # are cumulative since tick 0 of the whole run, so a naive diff against 0 would
+            # misleadingly show "this century" as the ENTIRE simulation's history-to-date
+            # (confirmed live: a first row showed +13M births vs a normal row's +476K). None
+            # here means "unknown," not zero -- the frontend renders it as "—".
+            births_this_century = self.total_births - prev['total_births'] if prev else None
+            deaths_this_century = self.total_deaths - prev['total_deaths'] if prev else None
+            raid_kills_this_century = self.total_raid_kills - prev['total_raid_kills'] if prev else None
             self.century_history.append({
                 'century': tick // CENTURY_TICKS,
                 'year_start': metrics['year'] - 100,
@@ -4497,9 +4502,9 @@ class Simulation:
                 'language_holders': metrics['language_holders'],
                 'writing_holders': metrics['writing_holders'],
                 'group_count': metrics['group_count'],
-                'births_this_century': self.total_births - prev_births,
-                'deaths_this_century': self.total_deaths - prev_deaths,
-                'raid_kills_this_century': self.total_raid_kills - prev_kills,
+                'births_this_century': births_this_century,
+                'deaths_this_century': deaths_this_century,
+                'raid_kills_this_century': raid_kills_this_century,
                 'total_births': self.total_births,
                 'total_deaths': self.total_deaths,
                 'total_raid_kills': self.total_raid_kills,

@@ -29,13 +29,19 @@ tbody tr:hover{background:#161b22}
 <body>
 <header>
   <h1>OCP — Century Report</h1>
-  <a href="/">&larr; Back to Simulation</a>
+  <a href="#" id="back-link">&larr; Back to Simulation</a>
   <span class="note" id="meta-note"></span>
 </header>
 <div id="wrap"></div>
 
 <script>
 const $ = s => document.getElementById(s);
+// This page always lives at ".../static/timeline.html" -- deriving the app root by
+// stripping that suffix (rather than hardcoding "/") keeps both the back-link and the
+// API calls correct whether the app is reached directly (port 8420, root "/") or through
+// a reverse proxy that serves it under a path prefix (e.g. "/ocp/").
+const BASE = location.pathname.replace(/\/static\/timeline\.html$/, '');
+$('back-link').href = BASE + '/';
 
 function fmtLivestock(lt) {
   const entries = Object.entries(lt || {});
@@ -72,9 +78,9 @@ function render(state) {
     ['Language', r => r.language_holders],
     ['Writing', r => r.writing_holders],
     ['Groups', r => r.group_count],
-    ['Births', r => `<span class="green">+${r.births_this_century}</span>`],
-    ['Deaths', r => `<span class="red">-${r.deaths_this_century}</span>`],
-    ['Raid Kills', r => r.raid_kills_this_century],
+    ['Births', r => r.births_this_century == null ? '<span class="muted">—</span>' : `<span class="green">+${r.births_this_century}</span>`],
+    ['Deaths', r => r.deaths_this_century == null ? '<span class="muted">—</span>' : `<span class="red">-${r.deaths_this_century}</span>`],
+    ['Raid Kills', r => r.raid_kills_this_century == null ? '—' : r.raid_kills_this_century],
   ];
 
   wrap.innerHTML = `<table>
@@ -85,7 +91,7 @@ function render(state) {
 
 async function poll() {
   try {
-    const res = await fetch('/api/state');
+    const res = await fetch(BASE + '/api/state');
     const state = await res.json();
     render(state);
   } catch (e) {
